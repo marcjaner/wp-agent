@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { copyBlock, replaceText } from './blocks.js';
+import { copyBlock, removeBlock, replaceImageBlock, replaceText } from './blocks.js';
 import { previewUrl, type BrowserDriver } from './browser.js';
 import { WordPress, pageSummary, type Page } from './wordpress.js';
 
@@ -34,6 +34,31 @@ export async function copyPageBlock(client: WordPress, sourceId: number, sourceP
   const saved = await client.page(targetId);
   if (saved.content.raw !== content) throw new Error(`Copied block content differed after saving page ${targetId}.`);
   return { page: updated, snapshot };
+}
+
+export async function removePageBlock(client: WordPress, pageId: number, blockPath: string) {
+  const page = await client.page(pageId);
+  const content = removeBlock(page.content.raw || '', blockPath);
+  const snapshot = await client.snapshot(page);
+  await client.post<Page>(`wp/v2/pages/${pageId}`, { content });
+  const saved = await client.page(pageId);
+  if (saved.content.raw !== content) throw new Error(`Page ${pageId} content differed after block removal.`);
+  return { page: saved, snapshot };
+}
+
+export async function replacePageImage(client: WordPress, pageId: number, blockPath: string, mediaId: number) {
+  const [page, media] = await Promise.all([
+    client.page(pageId),
+    client.get<{ id: number; source_url: string; alt_text: string; mime_type: string; media_details?: { sizes?: Record<string, { source_url: string }> } }>(`wp/v2/media/${mediaId}?context=edit`),
+  ]);
+  if (!media.mime_type.startsWith('image/')) throw new Error(`Media ${mediaId} is not an image.`);
+  const sizes = Object.fromEntries(Object.entries(media.media_details?.sizes || {}).map(([name, value]) => [name, value.source_url]));
+  const content = replaceImageBlock(page.content.raw || '', blockPath, { id: media.id, url: media.source_url, alt: media.alt_text || '', sizes });
+  const snapshot = await client.snapshot(page);
+  await client.post<Page>(`wp/v2/pages/${pageId}`, { content });
+  const saved = await client.page(pageId);
+  if (saved.content.raw !== content) throw new Error(`Page ${pageId} content differed after image replacement.`);
+  return { page: saved, snapshot };
 }
 
 export async function verifyPage(client: WordPress, driver: BrowserDriver, pageId: number, options: { expectedStatus?: string; screenshotDir?: string } = {}) {

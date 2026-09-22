@@ -1,6 +1,13 @@
 export { WordPress, WpError, pageSummary, siteUrl } from './wordpress.js';
+export { BridgeClient } from './bridge.js';
+export type { BridgeInfo, CssState, ThemeSettings } from './bridge.js';
+export { resolveBackend, readCustomCss, writeCustomCss } from './capabilities.js';
+export type { Backend, BackendPreference } from './capabilities.js';
+export { readGeneratePressConfig, writeGeneratePressConfig } from './adapters/generatepress.js';
+export type { GeneratePressConfig } from './adapters/generatepress.js';
 export type { Page } from './wordpress.js';
-export { parseBlocks, blockTree, replaceText, copyBlock } from './blocks.js';
+export { parseBlocks, blockTree, replaceText, copyBlock, removeBlock, replaceImageBlock } from './blocks.js';
+export type { ImageMedia } from './blocks.js';
 export { PlaywrightDriver, previewUrl } from './browser.js';
 export type { BrowserDriver, RenderResult } from './browser.js';
-export { clonePage, copyPageBlock, replacePageText, verifyPage } from './pages.js';
+export { clonePage, copyPageBlock, removePageBlock, replacePageImage, replacePageText, verifyPage } from './pages.js';

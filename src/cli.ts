@@ -3,9 +3,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Command } from 'commander';
 import { WordPress, WpError, pageSummary, saveSiteUrl, type Page } from './wordpress.js';
+import { BridgeClient } from './bridge.js';
+import { readCustomCss, writeCustomCss, type BackendPreference } from './capabilities.js';
+import { readGeneratePressConfig, writeGeneratePressConfig } from './adapters/generatepress.js';
 import { blockTree } from './blocks.js';
 import { PlaywrightDriver, previewUrl } from './browser.js';
-import { clonePage, copyPageBlock, replacePageText, verifyPage as verifyPageCore } from './pages.js';
+import { clonePage, copyPageBlock, removePageBlock, replacePageImage, replacePageText, verifyPage as verifyPageCore } from './pages.js';
 import { remoteWp } from './wpcli.js';
 
 const program = new Command();
@@ -61,7 +64,7 @@ program.command('status').description('Check credentials and basic permissions')
 
 program.command('inspect').description('Discover the WordPress installation').action(async () => {
   const client = wp();
-  const [settings, themes, plugins, types, root, blocks, versionInfo] = await Promise.all([
+  const [settings, themes, plugins, types, root, blocks, versionInfo, bridge] = await Promise.all([
     client.get<{ title: string; url: string }>('wp/v2/settings'),
     client.all<ArrayItem>('wp/v2/themes'),
     client.all<ArrayItem>('wp/v2/plugins'),
@@ -69,6 +72,7 @@ program.command('inspect').description('Discover the WordPress installation').ac
     client.get<{ routes: Record<string, unknown> }>(''),
     client.get<{ name: string }[]>('wp/v2/block-types?context=edit'),
     wordpressVersion(client.url),
+    new BridgeClient(client).discover(),
   ]);
   const data = {
     version: versionInfo.version, versionSource: versionInfo.source, siteUrl: settings.url, title: settings.title,
@@ -77,6 +81,7 @@ program.command('inspect').description('Discover the WordPress installation').ac
     postTypes: Object.keys(types), capabilities: Object.keys(root.routes).filter(route => route.startsWith('/wp/v2/')),
     gutenberg: blocks.length > 0, registeredBlocks: blocks.map(block => block.name),
     detectedBuilders: plugins.filter(plugin => /generateblocks|kadence|spectra|elementor|wpml|polylang|translatepress/i.test(`${plugin.plugin} ${plugin.name}`)),
+    bridge: bridge ? { installed: true, ...bridge } : { installed: false },
   };
   output(data);
 });
@@ -156,6 +161,14 @@ blocks.command('copy <source-page-id> <block-path> <target-page-id>').option('--
   const result = await copyPageBlock(wp(), id(sourceId), blockPath, id(targetId), options.after);
   output({ page: pageSummary(result.page), copiedFrom: { pageId: id(sourceId), path: blockPath }, after: options.after ?? null, snapshot: result.snapshot });
 });
+blocks.command('remove <page-id> <block-path>').action(async (pageId, blockPath) => {
+  const result = await removePageBlock(wp(), id(pageId), blockPath);
+  output({ page: pageSummary(result.page), removed: blockPath, snapshot: result.snapshot });
+});
+blocks.command('replace-image <page-id> <block-path> <media-id>').action(async (pageId, blockPath, mediaId) => {
+  const result = await replacePageImage(wp(), id(pageId), blockPath, id(mediaId));
+  output({ page: pageSummary(result.page), blockPath, mediaId: id(mediaId), snapshot: result.snapshot });
+});
 
 program.command('content').command('replace <page-id>').requiredOption('--from <text>').requiredOption('--to <text>').action(async (value, options) => {
   const result = await replacePageText(wp(), id(value), options.from, options.to);
@@ -227,6 +240,23 @@ themes.command('activate <slug>').action(async slug => {
   const active = (await wp().all<ArrayItem>('wp/v2/themes')).find(theme => theme.status === 'active');
   if (active?.stylesheet !== slug) throw new Error(`Theme activation was not confirmed: ${slug}`);
   output(active);
+});
+const generatepress = themes.command('generatepress');
+generatepress.command('get').option('--backend <backend>', 'auto, bridge, or wp-cli', 'auto').action(async options => {
+  output(await readGeneratePressConfig(wp(), options.backend as BackendPreference));
+});
+generatepress.command('set').requiredOption('--file <path>', 'JSON file with GeneratePress fields').option('--backend <backend>', 'auto, bridge, or wp-cli', 'auto').action(async options => {
+  output(await writeGeneratePressConfig(wp(), JSON.parse(fs.readFileSync(options.file, 'utf8')), options.backend as BackendPreference));
+});
+
+const customCss = program.command('custom-css');
+customCss.command('get').option('--backend <backend>', 'auto, bridge, or wp-cli', 'auto').action(async options => {
+  output(await readCustomCss(wp(), options.backend as BackendPreference));
+});
+customCss.command('set').requiredOption('--file <path>', 'CSS file').option('--backend <backend>', 'auto, bridge, or wp-cli', 'auto').action(async options => {
+  const client = wp();
+  const current = await readCustomCss(client, options.backend as BackendPreference);
+  output(await writeCustomCss(client, fs.readFileSync(options.file, 'utf8'), current.hash, options.backend as BackendPreference));
 });
 
 const browser = program.command('browser');

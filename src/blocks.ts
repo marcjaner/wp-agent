@@ -85,3 +85,51 @@ export function copyBlock(source: string, sourcePath: string, target: string, af
   const position = afterSpan?.end ?? target.length;
   return `${target.slice(0, position)}\n\n${fragment}${target.slice(position)}`;
 }
+
+export function removeBlock(content: string, blockPath: string): string {
+  const span = blockSpans(content).find(item => item.path === blockPath);
+  if (!span) throw new Error(`Block ${blockPath} not found.`);
+  return content.slice(0, span.start) + content.slice(span.end);
+}
+
+export type ImageMedia = { id: number; url: string; alt: string; sizes?: Record<string, string> };
+
+function htmlAttribute(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function setImageAttribute(tag: string, name: string, value: string): string {
+  const pattern = new RegExp(`\\s${name}="[^"]*"`);
+  const attribute = ` ${name}="${htmlAttribute(value)}"`;
+  return pattern.test(tag) ? tag.replace(pattern, attribute) : tag.replace(/\s*(\/?)>$/, `${attribute}$1>`);
+}
+
+export function replaceImageBlock(content: string, blockPath: string, media: ImageMedia): string {
+  if (!Number.isSafeInteger(media.id) || media.id <= 0) throw new Error('Media ID must be a positive integer.');
+  const url = new URL(media.url);
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Image URL must be HTTP(S) without credentials.');
+  const block = blockTree(content).find(item => item.path === blockPath);
+  if (block?.name !== 'core/image') throw new Error(`Block ${blockPath} is not a core/image block.`);
+  const span = blockSpans(content).find(item => item.path === blockPath)!;
+  const fragment = content.slice(span.start, span.end);
+  const opening = fragment.match(/^<!-- wp:image(?:\s+(\{[\s\S]*?\}))? -->/);
+  if (!opening) throw new Error('Image block has an unsupported opening delimiter.');
+  const attrs = opening[1] ? JSON.parse(opening[1]) as Record<string, unknown> : {};
+  const currentSize = typeof attrs.sizeSlug === 'string' ? attrs.sizeSlug : 'full';
+  const size = currentSize !== 'full' && media.sizes?.[currentSize] ? currentSize : 'full';
+  const imageUrl = size === 'full' ? media.url : media.sizes![size];
+  attrs.id = media.id;
+  attrs.sizeSlug = size;
+  const tags = [...fragment.matchAll(/<img\b[^>]*>/g)];
+  if (tags.length !== 1) throw new Error('Image block must contain exactly one image element.');
+  let tag = tags[0][0];
+  tag = setImageAttribute(tag, 'src', imageUrl);
+  tag = setImageAttribute(tag, 'alt', media.alt);
+  const classMatch = tag.match(/\sclass="([^"]*)"/);
+  const classes = classMatch ? classMatch[1].replace(/\bwp-image-\d+\b/g, '').trim() : '';
+  tag = setImageAttribute(tag, 'class', `${classes ? `${classes} ` : ''}wp-image-${media.id}`);
+  tag = tag.replace(/\s(?:srcset|sizes|width|height)="[^"]*"/g, '');
+  let updated = fragment.replace(opening[0], `<!-- wp:image ${JSON.stringify(attrs)} -->`).replace(tags[0][0], tag);
+  if (size !== currentSize) updated = updated.replace(/\bsize-[a-z0-9_-]+\b/, `size-${size}`);
+  return content.slice(0, span.start) + updated + content.slice(span.end);
+}

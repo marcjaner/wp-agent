@@ -3,4 +3,5 @@ dist/
 .env
 .wp-agent/
 artifacts/
+wp-agent-bridge.zip
 playwright-report/
