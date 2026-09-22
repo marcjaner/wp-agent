@@ -13,7 +13,8 @@
     "test": "npm run build && node --test tests/*.test.mjs",
     "test:live": "npm run build && node scripts/live-test.mjs",
     "bridge:package": "node scripts/package-bridge.mjs",
-    "test:bridge": "npm run build && node scripts/bridge-live-test.mjs"
+    "test:bridge": "npm run build && node scripts/bridge-live-test.mjs",
+    "test:browser-map": "npm run build && node scripts/test-browser-map.mjs"
   },
   "dependencies": {
     "@wordpress/block-serialization-default-parser": "^5.36.0",

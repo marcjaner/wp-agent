@@ -151,6 +151,13 @@ blocks.command('list <page-id>').action(async value => {
   const tree = blockTree(page.content.raw || '');
   output(tree, `Page ${page.id}\n${tree.map(block => `${'  '.repeat(block.path.split('.').length - 1)}${block.path} ${block.name}`).join('\n')}`);
 });
+blocks.command('map <page-id>').description('Map rendered elements and positions to Gutenberg block paths').option('--mobile').option('--all', 'Include nested blocks').action(async (value, options) => {
+  const client = wp();
+  const page = await client.page(id(value));
+  const driver = new PlaywrightDriver(client.url);
+  try { output(await driver.mapBlocks(page, options.mobile ? 'mobile' : 'desktop', !!options.all)); }
+  finally { await driver.close(); }
+});
 blocks.command('get <page-id> <block-path>').action(async (value, blockPath) => {
   const page = await wp().page(id(value));
   const block = blockTree(page.content.raw || '').find(item => item.path === blockPath);

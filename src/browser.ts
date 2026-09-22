@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { blockTree } from './blocks.js';
 import type { Page as WpPage } from './wordpress.js';
 
 export type RenderResult = {
@@ -11,6 +12,17 @@ export type RenderResult = {
   screenshot: string;
   errors: string[];
   viewport: 'desktop' | 'mobile';
+};
+
+export type RenderedBlock = {
+  path: string;
+  name: string;
+  match: 'uniqueId' | 'anchor' | 'className' | null;
+  matches: number;
+  tag: string | null;
+  className: string | null;
+  text: string | null;
+  bounds: { x: number; y: number; width: number; height: number } | null;
 };
 
 export interface BrowserDriver {
@@ -71,6 +83,54 @@ export class PlaywrightDriver implements BrowserDriver {
     } finally {
       await context.close();
     }
+  }
+
+  async mapBlocks(wpPage: WpPage, viewport: 'desktop' | 'mobile' = 'desktop', all = false): Promise<{ pageId: number; url: string; viewport: string; blocks: RenderedBlock[] }> {
+    const context = await this.getContext(viewport);
+    const page = await context.newPage();
+    const authenticated = wpPage.status !== 'publish';
+    const url = authenticated ? previewUrl(wpPage, this.siteUrl) : wpPage.link;
+    try {
+      if (authenticated) await this.login(page);
+      const response = await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+      if (response?.status() !== 200 || page.url().includes('wp-login.php')) throw new Error(`Could not render page ${wpPage.id} for block mapping.`);
+      if (authenticated) await page.addStyleTag({ content: '#wpadminbar { display: none !important; } html { margin-top: 0 !important; }' });
+      const blocks = blockTree(wpPage.content.raw || '').filter(block => all || !block.path.includes('.'));
+      const mapped = await page.evaluate(items => {
+        const elements = [...document.querySelectorAll('[class], [id]')];
+        return items.map(item => {
+          const methods: Array<[RenderedBlock['match'], (element: Element) => boolean]> = [];
+          if (item.uniqueId) methods.push(['uniqueId', element => [...element.classList].some(name => name === item.uniqueId || name.endsWith(`-${item.uniqueId}`))]);
+          if (item.anchor) methods.push(['anchor', element => element.id === item.anchor]);
+          if (item.className) {
+            const names = item.className.split(/\s+/).filter(Boolean);
+            if (names.length) methods.push(['className', element => names.every(name => element.classList.contains(name))]);
+          }
+          let found: Element[] = [];
+          let match: RenderedBlock['match'] = null;
+          for (const [method, test] of methods) {
+            const candidates = elements.filter(test);
+            if (candidates.length === 1) { found = candidates; match = method; break; }
+            if (!found.length) found = candidates;
+          }
+          const element = match ? found[0] : null;
+          const box = element?.getBoundingClientRect();
+          return {
+            path: item.path, name: item.name, match, matches: found.length,
+            tag: element?.tagName.toLowerCase() || null,
+            className: element?.getAttribute('class') || null,
+            text: (element as HTMLElement | null)?.innerText?.trim().replace(/\s+/g, ' ').slice(0, 180) || null,
+            bounds: box ? { x: Math.round(box.x), y: Math.round(box.y + scrollY), width: Math.round(box.width), height: Math.round(box.height) } : null,
+          };
+        });
+      }, blocks.map(block => ({
+        path: block.path, name: block.name,
+        uniqueId: typeof block.attributes.uniqueId === 'string' ? block.attributes.uniqueId : '',
+        anchor: typeof block.attributes.anchor === 'string' ? block.attributes.anchor : '',
+        className: typeof block.attributes.className === 'string' ? block.attributes.className : '',
+      })));
+      return { pageId: wpPage.id, url, viewport, blocks: mapped };
+    } finally { await context.close(); }
   }
 
   async close(): Promise<void> { await this.browser?.close(); }

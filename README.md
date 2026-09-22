@@ -24,6 +24,7 @@ node dist/cli.js inspect --json
 node dist/cli.js pages list --json
 node dist/cli.js pages get 142 --json
 node dist/cli.js blocks list 142 --json
+node dist/cli.js blocks map 142 --json
 node dist/cli.js pages preview 142 --json
 node dist/cli.js pages clone 142 --title "New draft" --json
 node dist/cli.js blocks copy 142 3 381 --after 1 --json
@@ -43,6 +44,7 @@ pages update ID [--title ...] [--content-file ...] [--status ...]
 pages delete ID --yes [--force]
 pages revisions ID
 blocks get ID PATH
+blocks map ID [--mobile] [--all]
 blocks copy SOURCE_ID PATH TARGET_ID [--after TOP_LEVEL_PATH]
 blocks remove PAGE_ID PATH
 blocks replace-image PAGE_ID PATH MEDIA_ID
@@ -53,7 +55,7 @@ browser open URL [--authenticated]
 screenshot URL [--mobile | --desktop] [--authenticated]
 ```
 
-`pages get` includes raw Gutenberg content. `blocks list` parses WordPress block delimiters and reports nested paths. Clone sends the original raw content back unchanged, preserving unknown and third-party blocks. `blocks copy` moves a serialized block or section from one page to another without regenerating third-party markup; it rejects duplicate block `uniqueId` values and snapshots the target before saving. `blocks remove` removes an identified block. `blocks replace-image` updates a core Image block using an existing WordPress media item while preserving other block attributes. These mutations snapshot the page before saving. `content replace` changes visible text nodes while keeping block comments, JSON attributes, tags, and the surrounding layout intact. Browser access is used for rendering and verification, with authenticated draft previews. Preview screenshots hide the WordPress admin bar so the captured layout matches a visitor view.
+`pages get` includes raw Gutenberg content. `blocks list` parses WordPress block delimiters and reports nested paths. `blocks map` relates rendered elements and their page coordinates to block paths using a unique ID, anchor, or uniquely matching class; it reports unmatched blocks rather than guessing. It maps top-level blocks by default and can inspect nested blocks with `--all`. Clone sends the original raw content back unchanged, preserving unknown and third-party blocks. `blocks copy` moves a serialized block or section from one page to another without regenerating third-party markup; it rejects duplicate block `uniqueId` values and snapshots the target before saving. `blocks remove` removes an identified block. `blocks replace-image` updates a core Image block using an existing WordPress media item while preserving other block attributes. These mutations snapshot the page before saving. `content replace` changes visible text nodes while keeping block comments, JSON attributes, tags, and the surrounding layout intact. Browser access is used for rendering and verification, with authenticated draft previews. Preview screenshots hide the WordPress admin bar so the captured layout matches a visitor view.
 
 The same operations can be called from TypeScript without spawning the CLI:
 
