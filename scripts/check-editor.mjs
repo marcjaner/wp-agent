@@ -11,7 +11,10 @@ try {
   await page.goto(new URL('wp-login.php', siteUrl()).toString());
   await page.locator('#user_login').fill(process.env.WP_USER);
   await page.locator('#user_pass').fill(process.env.WP_PASSWORD);
-  await page.locator('#wp-submit').click();
+  await Promise.all([
+    page.waitForURL(url => !url.pathname.includes('wp-login.php'), { timeout: 30000 }),
+    page.locator('#wp-submit').click(),
+  ]);
   await page.goto(new URL(`wp-admin/post.php?post=${pageId}&action=edit`, siteUrl()).toString(), { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(5000);
   const frames = page.frames();
