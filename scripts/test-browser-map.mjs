@@ -2,11 +2,12 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { PlaywrightDriver } from '../dist/browser.js';
 
-const html = '<main><section class="prefix-id-abc">Unique ID</section><section id="anchor-one">Anchor</section><div class="only-this">Class</div><p>Unmapped</p></main>';
+const html = '<main><section class="prefix-id-abc">Unique ID</section><section id="anchor-one">Anchor</section><div class="only-this">Class</div><p>Unmapped</p><section class="gb-element-gb-abc">GenerateBlocks</section><div class="other-gb-abc">Ambiguous fallback</div></main>';
 const content = `<!-- wp:group {"uniqueId":"id-abc"} --><div>Unique ID</div><!-- /wp:group -->
 <!-- wp:group {"anchor":"anchor-one"} --><div>Anchor</div><!-- /wp:group -->
 <!-- wp:group {"className":"only-this"} --><div>Class</div><!-- /wp:group -->
-<!-- wp:paragraph --><p>Unmapped</p><!-- /wp:paragraph -->`;
+<!-- wp:paragraph --><p>Unmapped</p><!-- /wp:paragraph -->
+<!-- wp:generateblocks/element {"uniqueId":"gb-abc","futureField":"keep"} --><section>GenerateBlocks</section><!-- /wp:generateblocks/element -->`;
 const server = createServer((request, response) => {
   response.writeHead(200, { 'Content-Type': 'text/html' });
   response.end(html);
@@ -16,9 +17,12 @@ const url = `http://127.0.0.1:${server.address().port}/`;
 const driver = new PlaywrightDriver(url);
 try {
   const result = await driver.mapBlocks({ id: 1, status: 'publish', link: url, content: { raw: content } });
-  assert.deepEqual(result.blocks.map(block => block.match), ['uniqueId', 'anchor', 'className', null]);
+  assert.deepEqual(result.blocks.map(block => block.match), ['uniqueId', 'anchor', 'className', null, 'uniqueId']);
   assert.ok(result.blocks.slice(0, 3).every(block => block.bounds && block.text));
-  console.log('PASS rendered block mapping: unique ID, anchor, unique class, and explicit unmatched result');
+  assert.equal(result.blocks[4].text, 'GenerateBlocks');
+  const withoutAdapters = await driver.mapBlocks({ id: 1, status: 'publish', link: url, content: { raw: content } }, 'desktop', false, []);
+  assert.equal(withoutAdapters.blocks[4].match, null);
+  console.log('PASS rendered block mapping: generic selectors, GenerateBlocks hint, disabled-adapter fallback, and explicit unmatched result');
 } finally {
   await driver.close();
   server.close();

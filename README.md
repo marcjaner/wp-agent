@@ -90,6 +90,12 @@ The bridge registers `GET /wp-json/wp-agent/v1/manifest` for version and capabil
 
 Theme setting writes accept only registered `theme_mod` settings or individual keys of registered Customizer option arrays, and require a registered sanitizer. The bridge does not expose arbitrary options, files, code execution, SQL, or shell commands. Custom CSS writes require the hash returned by the preceding read and use WordPress's `custom_css` post, which keeps revisions. `wp-agent inspect --json` reports bridge availability, version, and capabilities. CLI versions currently accept bridge protocol `0.1.x`.
 
+## Integration boundary
+
+`inspect --json` also reports `adapters`, with each detected integration's ID and semantic capabilities. The internal registry detects GeneratePress from the active theme and GenerateBlocks from its active plugin or registered block types. The older `detectedBuilders` field remains a plugin-name heuristic for compatibility; `adapters` is the semantic detection result. GeneratePress provides the `theme.config` interpretation and uses the existing Bridge or WP-CLI backend for reads and writes. GenerateBlocks provides a rendered class hint for mapping its `uniqueId` to a visible element. Gutenberg parsing, copying, removal, unknown attribute preservation, and the browser mapping algorithm stay generic and work when either adapter is absent. A small media fixture in the adapter tests checks that the registry can hold a structurally different capability; it is not a shipped integration.
+
+The existing `themes generatepress get/set` commands remain the public CLI. A future `theme config get/set` surface would be useful once another theme adapter provides the same capability; changing the command now would add migration cost without another real implementation to validate it. Adapters describe what an integration means. REST, Bridge, WP-CLI, and Playwright remain execution backends.
+
 GeneratePress interpretation lives in [src/adapters/generatepress.ts](src/adapters/generatepress.ts), outside the plugin:
 
 ```bash

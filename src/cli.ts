@@ -6,6 +6,7 @@ import { WordPress, WpError, pageSummary, saveSiteUrl, type Page } from './wordp
 import { BridgeClient } from './bridge.js';
 import { readCustomCss, writeCustomCss, type BackendPreference } from './capabilities.js';
 import { readGeneratePressConfig, writeGeneratePressConfig } from './adapters/generatepress.js';
+import { describeAdapters, detectAdapters } from './adapters/registry.js';
 import { blockTree } from './blocks.js';
 import { PlaywrightDriver, previewUrl } from './browser.js';
 import { clonePage, copyPageBlock, removePageBlock, replacePageImage, replacePageText, verifyPage as verifyPageCore } from './pages.js';
@@ -81,12 +82,17 @@ program.command('inspect').description('Discover the WordPress installation').ac
     postTypes: Object.keys(types), capabilities: Object.keys(root.routes).filter(route => route.startsWith('/wp/v2/')),
     gutenberg: blocks.length > 0, registeredBlocks: blocks.map(block => block.name),
     detectedBuilders: plugins.filter(plugin => /generateblocks|kadence|spectra|elementor|wpml|polylang|translatepress/i.test(`${plugin.plugin} ${plugin.name}`)),
+    adapters: describeAdapters(detectAdapters({
+      activeTheme: themes.find(theme => theme.status === 'active'),
+      activePlugins: plugins.filter(plugin => plugin.status === 'active'),
+      registeredBlocks: blocks.map(block => block.name),
+    })),
     bridge: bridge ? { installed: true, ...bridge } : { installed: false },
   };
   output(data);
 });
 
-type ArrayItem = { status: string; plugin?: string; slug?: string; name?: unknown; stylesheet?: string };
+type ArrayItem = { status: string; plugin?: string; slug?: string; name?: unknown; stylesheet?: string; template?: string };
 const matchesPlugin = (plugin: ArrayItem, slug: string) => plugin.plugin === slug || plugin.slug === slug || plugin.plugin?.split('/')[0] === slug;
 const pages = program.command('pages');
 pages.command('list').action(async () => {

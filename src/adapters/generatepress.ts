@@ -2,6 +2,7 @@ import { BridgeClient } from '../bridge.js';
 import { resolveBackend, saveCapabilitySnapshot, type BackendPreference } from '../capabilities.js';
 import { WordPress } from '../wordpress.js';
 import { remoteWp } from '../wpcli.js';
+import type { Adapter } from './registry.js';
 
 export type GeneratePressConfig = {
   containerWidth: number;
@@ -52,7 +53,7 @@ function validateConfig(changes: Partial<GeneratePressConfig>): void {
 
 async function ensureGeneratePress(client: WordPress): Promise<void> {
   const themes = await client.all<{ status: string; template: string }>('wp/v2/themes?context=edit');
-  if (!themes.some(theme => theme.status === 'active' && theme.template === 'generatepress')) throw new Error('The active theme is not GeneratePress.');
+  if (!generatePressAdapter.detect({ activeTheme: themes.find(theme => theme.status === 'active'), activePlugins: [], registeredBlocks: [] })) throw new Error('The active theme is not GeneratePress.');
 }
 
 export async function readGeneratePressConfig(client: WordPress, preference: BackendPreference = 'auto') {
@@ -88,3 +89,9 @@ export async function writeGeneratePressConfig(client: WordPress, changes: Parti
   }
   return { ...after, snapshot };
 }
+
+export const generatePressAdapter: Adapter = {
+  id: 'generatepress',
+  detect: installation => installation.activeTheme?.template === 'generatepress',
+  capabilities: [{ id: 'theme.config', implementation: { read: readGeneratePressConfig, write: writeGeneratePressConfig } }],
+};

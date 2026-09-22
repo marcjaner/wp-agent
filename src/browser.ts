@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { blockTree } from './blocks.js';
+import { capabilityImplementations, detectAdapters, type Adapter } from './adapters/registry.js';
+import type { RenderedClassHint } from './adapters/generateblocks.js';
 import type { Page as WpPage } from './wordpress.js';
 
 export type RenderResult = {
@@ -85,7 +87,7 @@ export class PlaywrightDriver implements BrowserDriver {
     }
   }
 
-  async mapBlocks(wpPage: WpPage, viewport: 'desktop' | 'mobile' = 'desktop', all = false): Promise<{ pageId: number; url: string; viewport: string; blocks: RenderedBlock[] }> {
+  async mapBlocks(wpPage: WpPage, viewport: 'desktop' | 'mobile' = 'desktop', all = false, adapters?: readonly Adapter[]): Promise<{ pageId: number; url: string; viewport: string; blocks: RenderedBlock[] }> {
     const context = await this.getContext(viewport);
     const page = await context.newPage();
     const authenticated = wpPage.status !== 'publish';
@@ -95,11 +97,15 @@ export class PlaywrightDriver implements BrowserDriver {
       const response = await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
       if (response?.status() !== 200 || page.url().includes('wp-login.php')) throw new Error(`Could not render page ${wpPage.id} for block mapping.`);
       if (authenticated) await page.addStyleTag({ content: '#wpadminbar { display: none !important; } html { margin-top: 0 !important; }' });
-      const blocks = blockTree(wpPage.content.raw || '').filter(block => all || !block.path.includes('.'));
+      const parsedBlocks = blockTree(wpPage.content.raw || '');
+      const blocks = parsedBlocks.filter(block => all || !block.path.includes('.'));
+      const applicableAdapters = adapters ?? detectAdapters({ activePlugins: [], registeredBlocks: parsedBlocks.map(block => block.name) });
+      const classHints = capabilityImplementations<RenderedClassHint>(applicableAdapters, 'block.renderedClassHint');
       const mapped = await page.evaluate(items => {
         const elements = [...document.querySelectorAll('[class], [id]')];
         return items.map(item => {
           const methods: Array<[RenderedBlock['match'], (element: Element) => boolean]> = [];
+          if (item.hintClasses.length) methods.push(['uniqueId', element => item.hintClasses.some(name => element.classList.contains(name))]);
           if (item.uniqueId) methods.push(['uniqueId', element => [...element.classList].some(name => name === item.uniqueId || name.endsWith(`-${item.uniqueId}`))]);
           if (item.anchor) methods.push(['anchor', element => element.id === item.anchor]);
           if (item.className) {
@@ -126,6 +132,7 @@ export class PlaywrightDriver implements BrowserDriver {
       }, blocks.map(block => ({
         path: block.path, name: block.name,
         uniqueId: typeof block.attributes.uniqueId === 'string' ? block.attributes.uniqueId : '',
+        hintClasses: classHints.flatMap(hint => hint(block)),
         anchor: typeof block.attributes.anchor === 'string' ? block.attributes.anchor : '',
         className: typeof block.attributes.className === 'string' ? block.attributes.className : '',
       })));
