@@ -10,6 +10,8 @@ import { remoteWp } from './wpcli.js';
 
 const program = new Command();
 program.name('wp-agent').description('Structured WordPress control and browser verification').option('--json', 'Machine-readable JSON output');
+program.configureOutput({ writeErr: () => {} });
+program.exitOverride();
 const wp = () => new WordPress();
 const id = (value: string) => {
   const parsed = Number(value);
@@ -236,7 +238,9 @@ program.command('verify <page-id>').option('--expect-status <status>', 'Expected
 });
 
 program.parseAsync(process.argv).catch(error => {
-  const data = { ok: false, error: { code: error instanceof WpError ? error.code : 'command_error', status: error instanceof WpError ? error.status : undefined, message: error instanceof Error ? error.message : String(error) } };
-  console.error(program.opts().json ? JSON.stringify(data) : `Error: ${data.error.message}`);
+  if (error?.code === 'commander.helpDisplayed') return;
+  const message = (error instanceof Error ? error.message : String(error)).replace(/^error:\s*/i, '');
+  const data = { ok: false, error: { code: error instanceof WpError ? error.code : error?.code || 'command_error', status: error instanceof WpError ? error.status : undefined, message } };
+  console.error(program.opts().json || process.argv.includes('--json') ? JSON.stringify(data) : `Error: ${data.error.message}`);
   process.exitCode = 1;
 });
