@@ -5,7 +5,7 @@ import { Command } from 'commander';
 import { WordPress, WpError, pageSummary, saveSiteUrl, type Page } from './wordpress.js';
 import { blockTree } from './blocks.js';
 import { PlaywrightDriver, previewUrl } from './browser.js';
-import { clonePage, replacePageText, verifyPage as verifyPageCore } from './pages.js';
+import { clonePage, copyPageBlock, replacePageText, verifyPage as verifyPageCore } from './pages.js';
 import { remoteWp } from './wpcli.js';
 
 const program = new Command();
@@ -151,6 +151,10 @@ blocks.command('get <page-id> <block-path>').action(async (value, blockPath) => 
   const block = blockTree(page.content.raw || '').find(item => item.path === blockPath);
   if (!block) throw new Error(`Block ${blockPath} not found`);
   output(block);
+});
+blocks.command('copy <source-page-id> <block-path> <target-page-id>').option('--after <block-path>', 'Insert after a top-level block; otherwise append').action(async (sourceId, blockPath, targetId, options) => {
+  const result = await copyPageBlock(wp(), id(sourceId), blockPath, id(targetId), options.after);
+  output({ page: pageSummary(result.page), copiedFrom: { pageId: id(sourceId), path: blockPath }, after: options.after ?? null, snapshot: result.snapshot });
 });
 
 program.command('content').command('replace <page-id>').requiredOption('--from <text>').requiredOption('--to <text>').action(async (value, options) => {

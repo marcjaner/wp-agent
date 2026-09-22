@@ -64,6 +64,7 @@ export class PlaywrightDriver implements BrowserDriver {
       const response = await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
       const html = await page.locator('body').innerText();
       if (/There has been a critical error on this website|Fatal error:|Error establishing a database connection/i.test(html)) errors.push('Fatal WordPress error rendered');
+      if (authenticated) await page.addStyleTag({ content: '#wpadminbar { display: none !important; } html { margin-top: 0 !important; }' });
       fs.mkdirSync(path.dirname(screenshot), { recursive: true });
       await page.screenshot({ path: screenshot, fullPage: true });
       return { url, finalUrl: page.url(), title: await page.title(), status: response?.status() ?? null, screenshot: path.resolve(screenshot), errors, viewport };

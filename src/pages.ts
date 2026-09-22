@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { replaceText } from './blocks.js';
+import { copyBlock, replaceText } from './blocks.js';
 import { previewUrl, type BrowserDriver } from './browser.js';
 import { WordPress, pageSummary, type Page } from './wordpress.js';
 
@@ -23,6 +23,17 @@ export async function replacePageText(client: WordPress, pageId: number, from: s
   const snapshot = await client.snapshot(page);
   const updated = await client.post<Page>(`wp/v2/pages/${page.id}`, { content });
   return { page: updated, replacements: count, snapshot };
+}
+
+export async function copyPageBlock(client: WordPress, sourceId: number, sourcePath: string, targetId: number, afterPath?: string) {
+  const source = await client.page(sourceId);
+  const target = await client.page(targetId);
+  const content = copyBlock(source.content.raw || '', sourcePath, target.content.raw || '', afterPath);
+  const snapshot = await client.snapshot(target);
+  const updated = await client.post<Page>(`wp/v2/pages/${targetId}`, { content });
+  const saved = await client.page(targetId);
+  if (saved.content.raw !== content) throw new Error(`Copied block content differed after saving page ${targetId}.`);
+  return { page: updated, snapshot };
 }
 
 export async function verifyPage(client: WordPress, driver: BrowserDriver, pageId: number, options: { expectedStatus?: string; screenshotDir?: string } = {}) {
