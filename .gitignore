@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .env
+.integration-learning.md
 .wp-agent/
 artifacts/
 wp-agent-bridge.zip
