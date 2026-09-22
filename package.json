@@ -1,0 +1,27 @@
+{
+  "name": "wp-agent",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "files": ["dist", "README.md", "LICENSE"],
+  "bin": { "wp-agent": "dist/cli.js" },
+  "exports": { ".": "./dist/index.js" },
+  "scripts": {
+    "build": "tsc",
+    "prepack": "npm run build",
+    "dev": "tsx src/cli.ts",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "test:live": "npm run build && node scripts/live-test.mjs"
+  },
+  "dependencies": {
+    "@wordpress/block-serialization-default-parser": "^5.36.0",
+    "commander": "^14.0.0",
+    "dotenv": "^17.2.2",
+    "playwright": "^1.55.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}
