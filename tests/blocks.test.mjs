@@ -37,6 +37,14 @@ test('copies a third-party section between pages without changing its serializat
   assert.ok(result.indexOf(source) < result.indexOf('<!-- wp:block'));
 });
 
+test('inserts a section beside a nested block within its parent', () => {
+  const source = '<!-- wp:generateblocks/element {"uniqueId":"other","tagName":"section"} -->\n<section class="gb-element-other"></section>\n<!-- /wp:generateblocks/element -->';
+  const target = '<!-- wp:group -->\n<div class="wp-block-group">\n<!-- wp:paragraph -->\n<p>First</p>\n<!-- /wp:paragraph -->\n</div>\n<!-- /wp:group -->';
+  const result = copyBlock(source, '0', target, '0.0');
+  assert.deepEqual(blockTree(result).map(block => block.path), ['0', '0.0', '0.1']);
+  assert.ok(result.indexOf(source) < result.indexOf('</div>'));
+});
+
 test('rejects duplicate third-party block IDs on the target page', () => {
   const section = '<!-- wp:generateblocks/element {"uniqueId":"repeat"} -->\n<div></div>\n<!-- /wp:generateblocks/element -->';
   assert.throws(() => copyBlock(section, '0', section), /uniqueId already exists/);

@@ -3,6 +3,7 @@ import { copyBlock, removeBlock, replaceImageBlock, replaceText } from './blocks
 import { previewUrl, type BrowserDriver } from './browser.js';
 import { WordPress, pageSummary, type Page } from './wordpress.js';
 import { executeMutation } from './policy.js';
+import { setGenerateBlocksStyles, type GenerateBlocksStylePatch } from './adapters/generateblocks.js';
 
 export async function clonePage(client: WordPress, sourceId: number, title?: string): Promise<{ source: Page; clone: Page }> {
   const source = await client.page(sourceId);
@@ -40,6 +41,19 @@ export async function copyPageBlock(client: WordPress, sourceId: number, sourceP
   }, { site: client.url, snapshot: async () => snapshot = await client.snapshot(target) });
   const saved = await client.page(targetId);
   if (saved.content.raw !== content) throw new Error(`Copied block content differed after saving page ${targetId}.`);
+  return { page: updated, snapshot };
+}
+
+export async function setPageBlockStyles(client: WordPress, pageId: number, blockPath: string, patch: GenerateBlocksStylePatch) {
+  const page = await client.page(pageId);
+  const content = setGenerateBlocksStyles(page.content.raw || '', blockPath, patch);
+  let snapshot = '';
+  const updated = await executeMutation({ tool: 'blocks.style.set', category: 'content', mutation: true, target: { type: 'page', id: page.id, status: page.status }, intent: { changes: ['layout', 'responsive'] }, reversible: 'reversible', input: { pageId, blockPath, fields: Object.keys(patch) } }, async () => {
+    snapshot ||= await client.snapshot(page);
+    return client.post<Page>(`wp/v2/pages/${pageId}`, { content });
+  }, { site: client.url, snapshot: async () => snapshot = await client.snapshot(page) });
+  const saved = await client.page(pageId);
+  if (saved.content.raw !== content) throw new Error(`Styled block content differed after saving page ${pageId}.`);
   return { page: updated, snapshot };
 }
 

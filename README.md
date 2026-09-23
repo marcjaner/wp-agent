@@ -64,9 +64,11 @@ pages delete ID --yes [--force]
 pages revisions ID
 blocks get ID PATH
 blocks map ID [--mobile] [--all]
-blocks copy SOURCE_ID PATH TARGET_ID [--after TOP_LEVEL_PATH]
+blocks copy SOURCE_ID PATH TARGET_ID [--after BLOCK_PATH]
 blocks remove PAGE_ID PATH
 blocks replace-image PAGE_ID PATH MEDIA_ID
+blocks style get PAGE_ID PATH
+blocks style set PAGE_ID PATH --file styles.json
 media list | search TERM | upload FILE [--alt ...]
 plugins list | install SLUG | activate SLUG | deactivate SLUG | remove SLUG --yes
 themes list | install SLUG | activate SLUG
@@ -74,7 +76,7 @@ browser open URL [--authenticated]
 screenshot URL [--mobile | --desktop] [--authenticated]
 ```
 
-`pages get` includes raw Gutenberg content. `blocks list` parses WordPress block delimiters and reports nested paths. `blocks map` relates rendered elements and their page coordinates to block paths using a unique ID, anchor, or uniquely matching class; it reports unmatched blocks rather than guessing. It maps top-level blocks by default and can inspect nested blocks with `--all`. Clone sends the original raw content back unchanged, preserving unknown and third-party blocks. `blocks copy` moves a serialized block or section from one page to another without regenerating third-party markup; it rejects duplicate block `uniqueId` values and snapshots the target before saving. `blocks remove` removes an identified block. `blocks replace-image` updates a core Image block using an existing WordPress media item while preserving other block attributes. These mutations snapshot the page before saving. `content replace` changes visible text nodes while keeping block comments, JSON attributes, tags, and the surrounding layout intact. Browser access is used for rendering and verification, with authenticated draft previews. Preview screenshots hide the WordPress admin bar so the captured layout matches a visitor view.
+`pages get` includes raw Gutenberg content. `blocks list` parses WordPress block delimiters and reports nested paths. `blocks map` relates rendered elements and their page coordinates to block paths using a unique ID, anchor, or uniquely matching class; it reports unmatched blocks rather than guessing. It maps top-level blocks by default and can inspect nested blocks with `--all`. Clone sends the original raw content back unchanged, preserving unknown and third-party blocks. `blocks copy` copies a serialized block or section from one page to another without regenerating third-party markup; `--after` accepts a nested path to insert a sibling at that level. It rejects duplicate block `uniqueId` values and snapshots the target before saving. `blocks remove` removes an identified block. `blocks replace-image` updates a core Image block using an existing WordPress media item while preserving other block attributes. `blocks style set` updates a GenerateBlocks Element's base and responsive `styles` plus generated `css`; it rejects existing CSS that cannot be safely regenerated. A style file can contain `{ "base": { "gridTemplateColumns": "2fr 1fr" }, "responsive": { "@media (max-width: 850px)": { "gridTemplateColumns": "1fr" } } }`. These mutations snapshot the page before saving. `content replace` changes visible text nodes while keeping block comments, JSON attributes, tags, and the surrounding layout intact. Browser access is used for rendering and verification, with authenticated draft previews. Preview screenshots hide the WordPress admin bar so the captured layout matches a visitor view.
 
 The same operations can be called from TypeScript without spawning the CLI:
 

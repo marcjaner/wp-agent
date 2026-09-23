@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { builtInAdapters, capabilityImplementations, describeAdapters, detectAdapters } from '../dist/adapters/registry.js';
 import { generatePressAdapter } from '../dist/adapters/generatepress.js';
-import { generateBlocksAdapter, generateBlocksClassNames, generateBlocksStyleSummary, setAccordionDefaultOpen } from '../dist/adapters/generateblocks.js';
+import { generateBlocksAdapter, generateBlocksClassNames, generateBlocksStyleSummary, setGenerateBlocksStyles, setAccordionDefaultOpen } from '../dist/adapters/generateblocks.js';
 import { blockTree, copyBlock } from '../dist/blocks.js';
 import { clonePage } from '../dist/pages.js';
 
@@ -18,7 +18,7 @@ const installation = {
 test('registry detects adapters and reports their semantic capabilities', () => {
   assert.deepEqual(describeAdapters(detectAdapters(installation)), [
     { id: 'generatepress', capabilities: ['theme.config'] },
-    { id: 'generateblocks', capabilities: ['block.renderedClassHint', 'block.styleSummary'] },
+    { id: 'generateblocks', capabilities: ['block.renderedClassHint', 'block.styleSummary', 'block.styleSet'] },
   ]);
   const [config] = capabilityImplementations(detectAdapters(installation), 'theme.config');
   assert.equal(typeof config.read, 'function');
@@ -29,7 +29,7 @@ test('registry detects adapters and reports their semantic capabilities', () => 
 
 test('disabling GeneratePress leaves generic Gutenberg and page cloning available', async () => {
   assert.deepEqual(describeAdapters(detectAdapters(installation, [generateBlocksAdapter])), [
-    { id: 'generateblocks', capabilities: ['block.renderedClassHint', 'block.styleSummary'] },
+    { id: 'generateblocks', capabilities: ['block.renderedClassHint', 'block.styleSummary', 'block.styleSet'] },
   ]);
   const content = '<!-- wp:paragraph --><p>Original</p><!-- /wp:paragraph -->';
   const source = { id: 1, title: { raw: 'Source' }, content: { raw: content }, template: '', parent: 0, featured_media: 0, menu_order: 0, comment_status: 'open', meta: {} };
@@ -82,10 +82,21 @@ test('GenerateBlocks summarizes responsive styles and shared classes without cha
   assert.match(content, /"uniqueId":"grid"/);
 });
 
+test('GenerateBlocks style change updates semantic styles and generated CSS', () => {
+  const content = '<!-- wp:generateblocks/element {"uniqueId":"grid","tagName":"section","futureField":"keep"} --><section class="gb-element-grid"></section><!-- /wp:generateblocks/element -->';
+  const updated = setGenerateBlocksStyles(content, '0', { base: { display: 'grid', gridTemplateColumns: '2fr 1fr' }, responsive: { '@media (max-width: 850px)': { gridTemplateColumns: '1fr' } } });
+  const block = blockTree(updated)[0];
+  assert.equal(block.attributes.futureField, 'keep');
+  assert.equal(block.attributes.styles.gridTemplateColumns, '2fr 1fr');
+  assert.equal(block.attributes.styles['@media (max-width: 850px)'].gridTemplateColumns, '1fr');
+  assert.match(block.attributes.css, /@media \(max-width: 850px\)/);
+  assert.match(updated, /<section class="gb-element-grid"><\/section>/);
+});
+
 test('Pro accordion mutation is available only with Pro and preserves unknown attributes and markup', () => {
   const proInstallation = { ...installation, activePlugins: [...installation.activePlugins, { plugin: 'generateblocks-pro/plugin.php', status: 'active' }] };
   assert.deepEqual(capabilityImplementations(detectAdapters(installation), 'accordion.defaultOpen'), []);
-  assert.deepEqual(describeAdapters(detectAdapters(proInstallation))[1].capabilities, ['block.renderedClassHint', 'block.styleSummary', 'accordion.defaultOpen']);
+  assert.deepEqual(describeAdapters(detectAdapters(proInstallation))[1].capabilities, ['block.renderedClassHint', 'block.styleSummary', 'block.styleSet', 'accordion.defaultOpen']);
   assert.equal(capabilityImplementations(detectAdapters(proInstallation), 'accordion.defaultOpen')[0], setAccordionDefaultOpen);
   const content = '<!-- wp:generateblocks-pro/accordion-item {"uniqueId":"item","futureField":{"keep":true}} --><div class="gb-accordion__item">Answer</div><!-- /wp:generateblocks-pro/accordion-item -->';
   const updated = setAccordionDefaultOpen(content, '0', true);

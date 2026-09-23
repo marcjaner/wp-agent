@@ -69,6 +69,7 @@ test('Jev can raise but never lower a deterministic decision', async () => {
   session.resources['page:105'] = { origin: 'session', status: 'draft' };
   assert.equal((await evaluatePolicy(owned, session, failed)).decision, 'allow');
   assert.equal((await evaluatePolicy(existingDraft, session, null)).decision, 'allow_with_snapshot');
+  assert.equal((await evaluatePolicy(action('media.upload', { type: 'media' }, { category: 'media' }), session, failed)).decision, 'allow');
 });
 
 test('journal records creation, snapshots, decisions, failures, and redacts secrets', async () => {

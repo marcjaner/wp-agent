@@ -99,14 +99,15 @@ export function copyBlock(source: string, sourcePath: string, target: string, af
   const targetSpans = blockSpans(target);
   const afterSpan = afterPath === undefined ? undefined : targetSpans.find(span => span.path === afterPath);
   if (afterPath !== undefined && !afterSpan) throw new Error(`Target block ${afterPath} not found.`);
-  if (afterPath?.includes('.')) throw new Error('Insertion after nested blocks is not supported.');
   const sourceTree = blockTree(source).filter(block => block.path === sourcePath || block.path.startsWith(`${sourcePath}.`));
   const targetIds = new Set(blockTree(target).map(block => block.attributes.uniqueId).filter(id => typeof id === 'string'));
   const duplicate = sourceTree.map(block => block.attributes.uniqueId).find(id => typeof id === 'string' && targetIds.has(id));
   if (duplicate) throw new Error(`Block uniqueId already exists on target page: ${duplicate}`);
   const fragment = source.slice(sourceSpan.start, sourceSpan.end);
   const position = afterSpan?.end ?? target.length;
-  return `${target.slice(0, position)}\n\n${fragment}${target.slice(position)}`;
+  const result = `${target.slice(0, position)}\n\n${fragment}${target.slice(position)}`;
+  blockSpans(result);
+  return result;
 }
 
 export function removeBlock(content: string, blockPath: string): string {

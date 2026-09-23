@@ -26,6 +26,45 @@ export function generateBlocksStyleSummary(content: string, path: string) {
   };
 }
 
+export type GenerateBlocksStylePatch = {
+  base?: Record<string, string | number>;
+  responsive?: Record<string, Record<string, string | number>>;
+};
+
+function cssForStyles(uniqueId: string, styles: Record<string, unknown>): string {
+  const selector = `.gb-element-${uniqueId}`;
+  const declarations = (values: Record<string, unknown>) => Object.entries(values).map(([property, value]) => {
+    if (!/^[a-z][a-zA-Z0-9]*$/.test(property) || !['string', 'number'].includes(typeof value) || /[;{}]/.test(String(value))) throw new Error(`Unsupported GenerateBlocks style: ${property}`);
+    return `${property.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}:${value}`;
+  }).join(';');
+  const base = Object.fromEntries(Object.entries(styles).filter(([key]) => !key.startsWith('@')));
+  const output = Object.keys(base).length ? `${selector}{${declarations(base)}}` : '';
+  return output + Object.entries(styles).filter(([key]) => key.startsWith('@')).map(([query, values]) => {
+    if (!/^@media \(max-width: \d{2,4}px\)$/.test(query) || !values || typeof values !== 'object' || Array.isArray(values)) throw new Error(`Unsupported GenerateBlocks media query: ${query}`);
+    return `${query}{${selector}{${declarations(values as Record<string, unknown>)}}}`;
+  }).join('');
+}
+
+export function setGenerateBlocksStyles(content: string, path: string, patch: GenerateBlocksStylePatch): string {
+  const block = blockTree(content).find(item => item.path === path);
+  if (block?.name !== 'generateblocks/element') throw new Error(`Block ${path} is not a GenerateBlocks Element.`);
+  const uniqueId = block.attributes.uniqueId;
+  if (typeof uniqueId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(uniqueId)) throw new Error(`Block ${path} has no usable uniqueId.`);
+  if (!patch.base && !patch.responsive) throw new Error('Provide base or responsive styles.');
+  if (patch.base && (typeof patch.base !== 'object' || Array.isArray(patch.base))) throw new Error('Base styles must be an object.');
+  if (patch.responsive && (typeof patch.responsive !== 'object' || Array.isArray(patch.responsive))) throw new Error('Responsive styles must be an object.');
+  const before = block.attributes.styles && typeof block.attributes.styles === 'object' && !Array.isArray(block.attributes.styles) ? block.attributes.styles as Record<string, unknown> : {};
+  const existingCss = block.attributes.css;
+  if (typeof existingCss === 'string' && existingCss && existingCss !== cssForStyles(uniqueId, before)) throw new Error(`Block ${path} has CSS that cannot be safely regenerated.`);
+  const styles = { ...before, ...patch.base };
+  for (const [query, values] of Object.entries(patch.responsive || {})) {
+    const previous = styles[query];
+    styles[query] = { ...(previous && typeof previous === 'object' && !Array.isArray(previous) ? previous : {}), ...values };
+  }
+  const css = cssForStyles(uniqueId, styles);
+  return updateBlockCommentAttributes(content, path, { styles, css });
+}
+
 export function setAccordionDefaultOpen(content: string, path: string, open: boolean): string {
   if (typeof open !== 'boolean') throw new Error('Accordion default state must be a boolean.');
   const block = blockTree(content).find(item => item.path === path);
@@ -53,6 +92,7 @@ export const generateBlocksAdapter: Adapter = {
   capabilities: [
     { id: 'block.renderedClassHint', implementation: generateBlocksClassNames },
     { id: 'block.styleSummary', implementation: generateBlocksStyleSummary },
+    { id: 'block.styleSet', implementation: setGenerateBlocksStyles },
     { id: 'accordion.defaultOpen', implementation: setAccordionDefaultOpen, available: installation =>
       installation.activePlugins.some(plugin => plugin.status === 'active' && (plugin.plugin?.split('/')[0] === 'generateblocks-pro' || plugin.slug === 'generateblocks-pro'))
       || installation.registeredBlocks.some(name => name.startsWith('generateblocks-pro/')) },

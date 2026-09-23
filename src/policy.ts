@@ -143,7 +143,7 @@ export function evaluateStatic(action: ProposedAction, session: Session): Policy
 
 export function shouldClassify(action: ProposedAction, session: Session): boolean {
   if (!action.mutation || !session.goal) return false;
-  if (action.tool === 'pages.clone' || action.tool === 'pages.create' && action.intent?.status !== 'publish') return false;
+  if (action.tool === 'pages.clone' || (action.tool === 'pages.create' && action.intent?.status !== 'publish') || action.tool === 'media.upload') return false;
   const key = action.target && resourceKey(action.target);
   const origin = (key && session.resources[key]?.origin) || action.target?.origin || 'preexisting';
   if (origin === 'session' && action.target?.status === 'draft' && !action.intent?.status && action.category === 'content') return false;

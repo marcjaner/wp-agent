@@ -9,7 +9,8 @@ import { readGeneratePressConfig, writeGeneratePressConfig } from './adapters/ge
 import { describeAdapters, detectAdapters } from './adapters/registry.js';
 import { blockTree } from './blocks.js';
 import { PlaywrightDriver, previewUrl } from './browser.js';
-import { clonePage, copyPageBlock, removePageBlock, replacePageImage, replacePageText, verifyPage as verifyPageCore } from './pages.js';
+import { clonePage, copyPageBlock, removePageBlock, replacePageImage, replacePageText, setPageBlockStyles, verifyPage as verifyPageCore } from './pages.js';
+import { generateBlocksStyleSummary } from './adapters/generateblocks.js';
 import { remoteWp } from './wpcli.js';
 import { executeMutation, evaluatePolicy, readSession, recordRead, redact, startSession, JevPolicyProvider, PolicyDecisionError, type Environment, type ProposedAction } from './policy.js';
 import { saveCapabilitySnapshot } from './capabilities.js';
@@ -227,7 +228,17 @@ blocks.command('get <page-id> <block-path>').action(async (value, blockPath) => 
   if (!block) throw new Error(`Block ${blockPath} not found`);
   output(block);
 });
-blocks.command('copy <source-page-id> <block-path> <target-page-id>').option('--after <block-path>', 'Insert after a top-level block; otherwise append').action(async (sourceId, blockPath, targetId, options) => {
+const blockStyle = blocks.command('style');
+blockStyle.command('get <page-id> <block-path>').action(async (value, blockPath) => {
+  const page = await wp().page(id(value));
+  recordRead('blocks.style.get', { type: 'page', id: page.id, status: page.status }, wp().url, { blockPath });
+  output(generateBlocksStyleSummary(page.content.raw || '', blockPath));
+});
+blockStyle.command('set <page-id> <block-path>').requiredOption('--file <path>', 'JSON with base and responsive style changes').action(async (value, blockPath, options) => {
+  const result = await setPageBlockStyles(wp(), id(value), blockPath, JSON.parse(fs.readFileSync(options.file, 'utf8')));
+  output({ page: pageSummary(result.page), style: generateBlocksStyleSummary(result.page.content.raw || '', blockPath), snapshot: result.snapshot });
+});
+blocks.command('copy <source-page-id> <block-path> <target-page-id>').option('--after <block-path>', 'Insert after a block at the same nesting level; otherwise append').action(async (sourceId, blockPath, targetId, options) => {
   const result = await copyPageBlock(wp(), id(sourceId), blockPath, id(targetId), options.after);
   output({ page: pageSummary(result.page), copiedFrom: { pageId: id(sourceId), path: blockPath }, after: options.after ?? null, snapshot: result.snapshot });
 });
