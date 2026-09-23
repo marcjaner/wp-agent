@@ -3,9 +3,19 @@
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
-  "files": ["dist", "README.md", "LICENSE", "wp-agent-bridge", "scripts/package-bridge.mjs"],
-  "bin": { "wp-agent": "dist/cli.js" },
-  "exports": { ".": "./dist/index.js" },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "wp-agent-bridge",
+    "scripts/package-bridge.mjs"
+  ],
+  "bin": {
+    "wp-agent": "dist/cli.js"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
   "scripts": {
     "build": "tsc",
     "prepack": "npm run build",
@@ -14,7 +24,8 @@
     "test:live": "npm run build && node scripts/live-test.mjs",
     "bridge:package": "node scripts/package-bridge.mjs",
     "test:bridge": "npm run build && node scripts/bridge-live-test.mjs",
-    "test:browser-map": "npm run build && node scripts/test-browser-map.mjs"
+    "test:browser-map": "npm run build && node scripts/test-browser-map.mjs",
+    "test:jev": "npm run build && node scripts/test-jev-policy.mjs"
   },
   "dependencies": {
     "@wordpress/block-serialization-default-parser": "^5.36.0",
@@ -26,5 +37,8 @@
     "@types/node": "^24.5.2",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
+  },
+  "optionalDependencies": {
+    "@typesafe-ai/sdk": "0.6.0"
   }
 }

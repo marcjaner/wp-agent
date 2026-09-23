@@ -5,9 +5,12 @@ export { resolveBackend, readCustomCss, writeCustomCss } from './capabilities.js
 export type { Backend, BackendPreference } from './capabilities.js';
 export { readGeneratePressConfig, writeGeneratePressConfig } from './adapters/generatepress.js';
 export type { GeneratePressConfig } from './adapters/generatepress.js';
+export { generateBlocksStyleSummary, setAccordionDefaultOpen } from './adapters/generateblocks.js';
 export type { Page } from './wordpress.js';
 export { parseBlocks, blockTree, replaceText, copyBlock, removeBlock, replaceImageBlock } from './blocks.js';
 export type { ImageMedia } from './blocks.js';
 export { PlaywrightDriver, previewUrl } from './browser.js';
 export type { BrowserDriver, RenderResult, RenderedBlock } from './browser.js';
 export { clonePage, copyPageBlock, removePageBlock, replacePageImage, replacePageText, verifyPage } from './pages.js';
+export { executeMutation, evaluatePolicy, evaluateStatic, readSession, recordRead, startSession, JevPolicyProvider, PolicyDecisionError } from './policy.js';
+export type { ProposedAction, PolicyAssessment, SemanticProvider, SemanticResult, Session, Environment, Decision, Risk, Resource } from './policy.js';

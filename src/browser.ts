@@ -62,9 +62,12 @@ export class PlaywrightDriver implements BrowserDriver {
     await page.locator('#user_login').fill(user);
     await page.locator('#user_pass').fill(password);
     await Promise.all([
-      page.waitForURL(url => !url.pathname.includes('wp-login.php'), { timeout: 30000 }),
+      page.waitForURL(url => !url.pathname.includes('wp-login.php'), { waitUntil: 'domcontentloaded', timeout: 30000 }),
       page.locator('#wp-submit').click(),
-    ]).catch(() => { throw new Error('WordPress browser login failed. Check WP_USER and WP_PASSWORD.'); });
+    ]).catch(async () => {
+      const detail = await page.locator('#login_error').innerText({ timeout: 1000 }).catch(() => '');
+      throw new Error(`WordPress browser login failed. ${detail ? detail.replace(/\s+/g, ' ').slice(0, 300) : 'Check WP_USER and WP_PASSWORD.'}`);
+    });
   }
 
   async render(url: string, viewport: 'desktop' | 'mobile', screenshot: string, authenticated = false): Promise<RenderResult> {

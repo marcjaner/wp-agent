@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { BridgeClient, type CssState } from './bridge.js';
 import { WordPress } from './wordpress.js';
 import { remoteWp } from './wpcli.js';
+import { executeMutation } from './policy.js';
 
 export type BackendPreference = 'auto' | 'bridge' | 'wp-cli';
 export type Backend = 'bridge' | 'wp-cli';
@@ -47,15 +48,18 @@ export async function readCustomCss(client: WordPress, preference: BackendPrefer
 export async function writeCustomCss(client: WordPress, css: string, expectedHash: string, preference: BackendPreference = 'auto') {
   const current = await readCustomCss(client, preference);
   if (current.hash !== expectedHash) throw new Error('Custom CSS changed since it was read.');
-  const snapshot = saveCapabilitySnapshot('custom-css', current);
-  if (current.backend === 'bridge') {
-    const state = await new BridgeClient(client).writeCss(css, expectedHash);
+  let snapshot = '';
+  return executeMutation({ tool: 'custom-css.set', category: 'site_config', mutation: true, target: { type: 'custom-css', id: current.stylesheet }, intent: { changes: ['css'] }, reversible: 'reversible', input: { stylesheet: current.stylesheet, cssLength: css.length } }, async () => {
+    snapshot ||= saveCapabilitySnapshot('custom-css', current);
+    if (current.backend === 'bridge') {
+      const state = await new BridgeClient(client).writeCss(css, expectedHash);
+      if (state.css !== css) throw new Error('WordPress did not retain the requested CSS.');
+      return { state, backend: current.backend, snapshot };
+    }
+    const encoded = Buffer.from(css).toString('base64');
+    await remoteWp(['eval', `wp_update_custom_css_post(base64_decode('${encoded}'));`]);
+    const state = await readCustomCss(client, 'wp-cli');
     if (state.css !== css) throw new Error('WordPress did not retain the requested CSS.');
     return { state, backend: current.backend, snapshot };
-  }
-  const encoded = Buffer.from(css).toString('base64');
-  await remoteWp(['eval', `wp_update_custom_css_post(base64_decode('${encoded}'));`]);
-  const state = await readCustomCss(client, 'wp-cli');
-  if (state.css !== css) throw new Error('WordPress did not retain the requested CSS.');
-  return { state, backend: current.backend, snapshot };
+  }, { site: client.url, snapshot: () => snapshot = saveCapabilitySnapshot('custom-css', current) });
 }

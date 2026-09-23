@@ -7,7 +7,7 @@ export type Installation = {
   registeredBlocks: string[];
 };
 
-export type AdapterCapability = { id: string; implementation?: unknown };
+export type AdapterCapability = { id: string; implementation?: unknown; available?: (installation: Installation) => boolean };
 
 export type Adapter = {
   id: string;
@@ -18,7 +18,10 @@ export type Adapter = {
 export const builtInAdapters: readonly Adapter[] = [generatePressAdapter, generateBlocksAdapter];
 
 export function detectAdapters(installation: Installation, adapters: readonly Adapter[] = builtInAdapters): Adapter[] {
-  return adapters.filter(adapter => adapter.detect(installation));
+  return adapters.filter(adapter => adapter.detect(installation)).map(adapter => ({
+    ...adapter,
+    capabilities: adapter.capabilities.filter(capability => !capability.available || capability.available(installation)),
+  }));
 }
 
 export function capabilityImplementations<T>(adapters: readonly Adapter[], id: string): T[] {

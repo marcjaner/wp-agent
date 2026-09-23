@@ -1,4 +1,5 @@
 import { WordPress, WpError } from './wordpress.js';
+import { executeMutation, insidePolicyExecution, savePolicySnapshot } from './policy.js';
 
 export type BridgeInfo = { bridgeVersion: string; capabilities: string[] };
 export type CssState = { stylesheet: string; css: string; hash: string; postId: number | null };
@@ -40,6 +41,10 @@ export class BridgeClient {
 
   async writeSettings(settings: ThemeSettings['settings']): Promise<ThemeSettings> {
     await this.requireCapability('theme.customizerSettings.write');
+    if (!insidePolicyExecution()) {
+      const before = await this.readSettings(Object.keys(settings));
+      return executeMutation({ tool: 'theme.settings.set', category: 'site_config', mutation: true, target: { type: 'theme', id: before.stylesheet }, intent: { changes: Object.keys(settings) }, reversible: 'reversible', input: { fields: Object.keys(settings) } }, () => this.writeSettings(settings), { site: this.wp.url, snapshot: () => savePolicySnapshot('theme-settings', before) });
+    }
     return this.wp.post<ThemeSettings>('wp-agent/v1/theme-settings', { settings });
   }
 
@@ -50,6 +55,10 @@ export class BridgeClient {
 
   async writeCss(css: string, expectedHash: string): Promise<CssState> {
     await this.requireCapability('customCss.write');
+    if (!insidePolicyExecution()) {
+      const before = await this.readCss();
+      return executeMutation({ tool: 'custom-css.set', category: 'site_config', mutation: true, target: { type: 'custom-css', id: before.stylesheet }, intent: { changes: ['css'] }, reversible: 'reversible', input: { stylesheet: before.stylesheet, cssLength: css.length } }, () => this.writeCss(css, expectedHash), { site: this.wp.url, snapshot: () => savePolicySnapshot('custom-css', before) });
+    }
     return this.wp.post<CssState>('wp-agent/v1/custom-css', { css, expectedHash });
   }
 }

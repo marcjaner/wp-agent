@@ -2,6 +2,7 @@ import { BridgeClient } from '../bridge.js';
 import { resolveBackend, saveCapabilitySnapshot, type BackendPreference } from '../capabilities.js';
 import { WordPress } from '../wordpress.js';
 import { remoteWp } from '../wpcli.js';
+import { executeMutation } from '../policy.js';
 import type { Adapter } from './registry.js';
 
 export type GeneratePressConfig = {
@@ -74,20 +75,23 @@ export async function readGeneratePressConfig(client: WordPress, preference: Bac
 export async function writeGeneratePressConfig(client: WordPress, changes: Partial<GeneratePressConfig>, preference: BackendPreference = 'auto') {
   validateConfig(changes);
   const before = await readGeneratePressConfig(client, preference);
-  const snapshot = saveCapabilitySnapshot('generatepress', before);
-  if (before.backend === 'bridge') {
-    const values = Object.fromEntries(Object.entries(changes).map(([field, value]) => [`generate_settings[${settingNames[field as keyof GeneratePressConfig]}]`, value]));
-    await new BridgeClient(client).writeSettings(values);
-  } else {
-    for (const [field, value] of Object.entries(changes)) {
-      await remoteWp(['option', 'patch', 'update', 'generate_settings', settingNames[field as keyof GeneratePressConfig], String(value)]);
+  let snapshot = '';
+  return executeMutation({ tool: 'theme.config.set', category: 'site_config', mutation: true, target: { type: 'theme', id: 'generatepress' }, intent: { changes: Object.keys(changes) }, reversible: 'reversible', input: { fields: Object.keys(changes) } }, async () => {
+    snapshot ||= saveCapabilitySnapshot('generatepress', before);
+    if (before.backend === 'bridge') {
+      const values = Object.fromEntries(Object.entries(changes).map(([field, value]) => [`generate_settings[${settingNames[field as keyof GeneratePressConfig]}]`, value]));
+      await new BridgeClient(client).writeSettings(values);
+    } else {
+      for (const [field, value] of Object.entries(changes)) {
+        await remoteWp(['option', 'patch', 'update', 'generate_settings', settingNames[field as keyof GeneratePressConfig], String(value)]);
+      }
     }
-  }
-  const after = await readGeneratePressConfig(client, before.backend);
-  for (const [field, value] of Object.entries(changes)) {
-    if (after.config[field as keyof GeneratePressConfig] !== value) throw new Error(`GeneratePress did not retain ${field}.`);
-  }
-  return { ...after, snapshot };
+    const after = await readGeneratePressConfig(client, before.backend);
+    for (const [field, value] of Object.entries(changes)) {
+      if (after.config[field as keyof GeneratePressConfig] !== value) throw new Error(`GeneratePress did not retain ${field}.`);
+    }
+    return { ...after, snapshot };
+  }, { site: client.url, snapshot: () => snapshot = saveCapabilitySnapshot('generatepress', before) });
 }
 
 export const generatePressAdapter: Adapter = {

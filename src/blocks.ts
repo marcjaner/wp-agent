@@ -70,6 +70,29 @@ function blockSpans(content: string): Span[] {
   return spans;
 }
 
+export function blockSpan(content: string, blockPath: string): Span {
+  const span = blockSpans(content).find(item => item.path === blockPath);
+  if (!span) throw new Error(`Block ${blockPath} not found.`);
+  return span;
+}
+
+export function updateBlockCommentAttributes(content: string, blockPath: string, changes: Record<string, unknown>): string {
+  const block = blockTree(content).find(item => item.path === blockPath);
+  const span = blockSpan(content, blockPath);
+  if (!block) throw new Error(`Block ${blockPath} not found.`);
+  const fragment = content.slice(span.start, span.end);
+  const end = fragment.indexOf('-->');
+  const opening = fragment.slice(0, end + 3);
+  const match = opening.match(/^<!-- wp:([^\s]+)(?: \{[\s\S]*\})? (\/)?-->$/);
+  if (!match) throw new Error(`Block ${blockPath} has an unsupported opening delimiter.`);
+  const attributes = { ...block.attributes, ...changes };
+  const updated = `<!-- wp:${match[1]} ${JSON.stringify(attributes)}${match[2] ? ' /-->' : ' -->'}`;
+  const result = content.slice(0, span.start) + updated + content.slice(span.start + opening.length);
+  const after = blockTree(result).find(item => item.path === blockPath);
+  if (after?.name !== block.name) throw new Error(`Block ${blockPath} changed type during attribute update.`);
+  return result;
+}
+
 export function copyBlock(source: string, sourcePath: string, target: string, afterPath?: string): string {
   const sourceSpan = blockSpans(source).find(span => span.path === sourcePath);
   if (!sourceSpan) throw new Error(`Source block ${sourcePath} not found.`);
