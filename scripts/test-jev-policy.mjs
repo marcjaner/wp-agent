@@ -12,7 +12,7 @@ const session = {
     'page:42': { origin: 'preexisting', initialStatus: 'publish', status: 'publish' },
     'page:105': { origin: 'session', createdBy: 'clone', initialStatus: 'draft', status: 'draft' },
   },
-  actions: [{ id: 'clone', timestamp: new Date().toISOString(), tool: 'pages.clone', target: { type: 'page', id: 42, status: 'publish' }, policy: { staticRisk: 'low', decision: 'allow', reason: 'New draft.' }, result: { success: true, created: { type: 'page', id: 105, status: 'draft' } } }],
+  actions: [{ id: 'clone', timestamp: new Date().toISOString(), tool: 'pages.clone', source: { type: 'page', id: 42, status: 'publish' }, target: { type: 'page', status: 'draft' }, policy: { staticRisk: 'low', decision: 'allow', reason: 'New draft.' }, result: { success: true, created: { type: 'page', id: 105, status: 'draft' } } }],
 };
 const provider = new JevPolicyProvider();
 const cases = [

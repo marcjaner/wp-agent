@@ -16,6 +16,7 @@ export type ProposedAction = {
   category: 'content' | 'media' | 'site_config' | 'plugin' | 'theme' | 'browser' | 'raw';
   mutation: boolean;
   target?: Resource;
+  source?: Resource;
   intent?: { changes?: string[]; status?: string; count?: number; sourceId?: number };
   reversible: Reversibility;
   input?: Record<string, unknown>;
@@ -24,7 +25,7 @@ export type PolicyAssessment = { staticRisk: Risk; decision: Decision; reason: s
 export type SemanticResult = { classification: 'consistent' | 'uncertain' | 'suspicious'; intentMismatch: boolean; confidence: number; reason: string };
 export type JournalResource = { origin: Origin; initialStatus?: string; status?: string; createdBy?: string; modifiedBy?: string };
 export type JournalAction = {
-  id: string; timestamp: string; tool: string; target?: Resource; input?: Record<string, unknown>;
+  id: string; timestamp: string; tool: string; target?: Resource; source?: Resource; input?: Record<string, unknown>;
   policy: PolicyAssessment; result: { success: boolean; created?: Resource; snapshot?: string; error?: string };
 };
 export type Session = {
@@ -167,8 +168,8 @@ export class JevPolicyProvider implements SemanticProvider {
     const state = {
       goal: session.goal || '',
       environment: session.environment.type,
-      recentActions: session.actions.slice(-8).map(item => ({ tool: item.tool, target: item.target || null, success: item.result.success, created: item.result.created || null })),
-      proposedAction: { tool: action.tool, category: action.category, target: action.target || null, intent: action.intent || null },
+      recentActions: session.actions.slice(-8).map(item => ({ tool: item.tool, target: item.target || null, source: item.source || null, success: item.result.success, created: item.result.created || null })),
+      proposedAction: { tool: action.tool, category: action.category, target: action.target || null, source: action.source || null, intent: action.intent || null },
     };
     const response = await client.systemOne({ state: JSON.parse(JSON.stringify(redact(state))), questions: {
       fit: choice('Does the proposed WordPress action fit the stated goal and recent workflow? Judge intent, not whether the action is generally allowed.', {
@@ -230,9 +231,11 @@ export async function executeMutation<T>(proposal: ProposedAction, perform: () =
   const action = { ...proposal, id: proposal.id || randomUUID() };
   const targetKey = action.target && resourceKey(action.target);
   if (targetKey && !session.resources[targetKey]) session.resources[targetKey] = { origin: action.target?.origin || 'preexisting', initialStatus: action.target?.status, status: action.target?.status };
+  const sourceKey = action.source && resourceKey(action.source);
+  if (sourceKey && !session.resources[sourceKey]) session.resources[sourceKey] = { origin: action.source?.origin || 'preexisting', initialStatus: action.source?.status, status: action.source?.status };
   const provider = options.provider === undefined && process.env.TYPESAFE_API_KEY ? new JevPolicyProvider() : options.provider;
   const assessment = await evaluatePolicy(action, session, provider);
-  const record: JournalAction = { id: action.id, timestamp: new Date().toISOString(), tool: action.tool, target: action.target, input: redact(action.input || {}) as Record<string, unknown>, policy: assessment, result: { success: false } };
+  const record: JournalAction = { id: action.id, timestamp: new Date().toISOString(), tool: action.tool, target: action.target, source: action.source, input: redact(action.input || {}) as Record<string, unknown>, policy: assessment, result: { success: false } };
   if (assessment.decision === 'require_approval' && options.interactive && process.stdin.isTTY) {
     const prompt = createInterface({ input: process.stdin, output: process.stderr });
     const answer = await prompt.question(`${action.tool} ${action.target?.type || ''} ${action.target?.id || ''} ${action.target?.title || ''}\nEnvironment: ${session.environment.type}; risk: ${assessment.staticRisk}\n${assessment.reason}\nType approve to continue: `).finally(() => prompt.close());

@@ -6,7 +6,7 @@ import { executeMutation } from './policy.js';
 
 export async function clonePage(client: WordPress, sourceId: number, title?: string): Promise<{ source: Page; clone: Page }> {
   const source = await client.page(sourceId);
-  const clone = await executeMutation({ tool: 'pages.clone', category: 'content', mutation: true, target: { type: 'page', id: source.id, status: source.status, title: source.title.raw || source.title.rendered }, intent: { sourceId }, reversible: 'reversible', input: { sourcePageId: sourceId } }, () => client.post<Page>('wp/v2/pages', {
+  const clone = await executeMutation({ tool: 'pages.clone', category: 'content', mutation: true, target: { type: 'page', status: 'draft' }, source: { type: 'page', id: source.id, status: source.status, title: source.title.raw || source.title.rendered }, intent: { sourceId }, reversible: 'reversible', input: { sourcePageId: sourceId } }, () => client.post<Page>('wp/v2/pages', {
     title: title || `${source.title.raw || source.title.rendered} (Copy)`,
     content: source.content.raw, status: 'draft', template: source.template,
     parent: source.parent, featured_media: source.featured_media,

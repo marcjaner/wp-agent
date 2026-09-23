@@ -42,6 +42,18 @@ test('environment changes site-wide and published-page decisions', () => {
   assert.equal(evaluateStatic(published, sessions.production).decision, 'require_approval');
 });
 
+test('cloning tracks the source as read and the draft as created', async () => {
+  const file = tempFile();
+  startSession('Clone a published page into a draft.', 'production', site, file);
+  await executeMutation(action('pages.clone', { type: 'page', status: 'draft' }, { source: page(42, 'publish'), intent: { sourceId: 42 } }), async () => ({ id: 105, status: 'draft' }), { file, site, provider: null, created: result => page(result.id, result.status) });
+  const journal = readSession(file);
+  assert.equal(journal.resources['page:42'].origin, 'preexisting');
+  assert.equal(journal.resources['page:42'].modifiedBy, undefined);
+  assert.equal(journal.resources['page:105'].origin, 'session');
+  assert.equal(journal.actions[0].source.id, 42);
+  assert.equal(journal.actions[0].result.created.id, 105);
+});
+
 test('Jev can raise but never lower a deterministic decision', async () => {
   const session = startSession('Create a draft from page 42.', 'production', site, tempFile());
   const suspicious = { classify: async () => ({ classification: 'suspicious', intentMismatch: true, confidence: 0.96, reason: 'Goal mismatch.' }) };
