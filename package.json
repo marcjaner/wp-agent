@@ -2,17 +2,26 @@
   "name": "wp-agent",
   "version": "0.1.0",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/marcjaner/wp-agent.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "files": [
     "dist",
     "README.md",
     "LICENSE",
     "wp-agent-bridge",
+    "skills",
     "scripts/package-bridge.mjs"
   ],
   "bin": {
     "wp-agent": "dist/cli.js"
   },
+  "types": "dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js"
   },

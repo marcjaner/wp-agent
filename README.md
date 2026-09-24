@@ -2,7 +2,17 @@
 
 A TypeScript CLI and library that gives coding agents structured control of WordPress and Playwright screenshots for visual verification. It uses the WordPress REST API for pages, media, plugins, and discovery. The optional WordPress bridge provides registered Customizer settings and Custom CSS over authenticated HTTP. Optional SSH/WP-CLI remains available for theme installation, activation, and configuration.
 
-## Setup
+## Install
+
+```bash
+npm install -g wp-agent
+npx playwright install chromium
+# Set WP_URL, WP_USER, WP_APP_PASSWORD, and WP_PASSWORD in the environment.
+wp-agent connect https://your-site.example --json
+wp-agent status --json
+```
+
+For a source checkout:
 
 ```bash
 npm install
@@ -98,6 +108,10 @@ try {
 
 The `BrowserDriver` interface is independent of Playwright. SSH and WP-CLI are optional. The bridge and WP-CLI can both handle the tested GeneratePress settings and Custom CSS; `auto` uses a working WP-CLI connection when available, then the bridge. The browser still handles rendering and editor verification.
 
+## Agent skill
+
+The package includes [skills/wordpress/SKILL.md](skills/wordpress/SKILL.md), a short workflow for coding agents using wp-agent. After installation it is at `node_modules/wp-agent/skills/wordpress/SKILL.md`. npm does not automatically register skills with an agent; add that folder through the agent's skill installation mechanism or give the agent the file path. The skill explains session policy, structured mutations, optional backends, and the separate browser and Gutenberg checks needed beyond `verify`.
+
 ## Optional WordPress bridge
 
 Package the plugin with `npm run bridge:package`. This creates `wp-agent-bridge.zip` containing the `wp-agent-bridge/` plugin directory. Install it on any compatible WordPress site through **Plugins → Add Plugin → Upload Plugin → Activate**. WP-CLI is not required for installation. Sites without the bridge retain core REST and browser operations.
@@ -115,7 +129,7 @@ Theme setting writes accept only registered `theme_mod` settings or individual k
 
 `inspect --json` also reports `adapters`, with each detected integration's ID and semantic capabilities. The internal registry detects GeneratePress from the active theme and GenerateBlocks from its active plugin or registered block types. The older `detectedBuilders` field remains a plugin-name heuristic for compatibility; `adapters` is the semantic detection result. GeneratePress provides the `theme.config` interpretation and uses the existing Bridge or WP-CLI backend for reads and writes. GenerateBlocks provides a rendered class hint for mapping its `uniqueId` to a visible element. Gutenberg parsing, copying, removal, unknown attribute preservation, and the browser mapping algorithm stay generic and work when either adapter is absent. A small media fixture in the adapter tests checks that the registry can hold a structurally different capability; it is not a shipped integration.
 
-The GenerateBlocks adapter also summarizes local and responsive styles, compiled CSS, and global class names for a block. When GenerateBlocks Pro is active, it exposes `accordion.defaultOpen`; `setAccordionDefaultOpen(content, path, open)` updates both the block attribute and Pro's saved open-state class. It returns content for the caller to save through the usual WordPress page operation. It rejects unsupported saved markup instead of guessing. General style mutation and Pro global style management are not yet adapter operations: GenerateBlocks stores both editable style data and compiled CSS, so changing only one can leave the editor and rendered page out of sync.
+The GenerateBlocks adapter summarizes local and responsive styles, compiled CSS, and global class names for a block. `blocks style set` updates both editable styles and compiled CSS for supported GenerateBlocks Elements; it rejects existing CSS it cannot safely regenerate. When GenerateBlocks Pro is active, the adapter also exposes `accordion.defaultOpen`; `setAccordionDefaultOpen(content, path, open)` updates both the block attribute and Pro's saved open-state class. It returns content for the caller to save through the usual WordPress page operation. Pro global style management is not yet an adapter operation.
 
 The existing `themes generatepress get/set` commands remain the public CLI. A future `theme config get/set` surface would be useful once another theme adapter provides the same capability; changing the command now would add migration cost without another real implementation to validate it. Adapters describe what an integration means. REST, Bridge, WP-CLI, and Playwright remain execution backends.
 
