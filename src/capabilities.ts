@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { BridgeClient, type CssState } from './bridge.js';
 import { WordPress } from './wordpress.js';
 import { remoteWp } from './wpcli.js';
-import { executeMutation } from './policy.js';
+import { executeMutation, hashPayload } from './policy.js';
 
 export type BackendPreference = 'auto' | 'bridge' | 'wp-cli';
 export type Backend = 'bridge' | 'wp-cli';
@@ -49,7 +49,7 @@ export async function writeCustomCss(client: WordPress, css: string, expectedHas
   const current = await readCustomCss(client, preference);
   if (current.hash !== expectedHash) throw new Error('Custom CSS changed since it was read.');
   let snapshot = '';
-  return executeMutation({ tool: 'custom-css.set', category: 'site_config', mutation: true, target: { type: 'custom-css', id: current.stylesheet }, intent: { changes: ['css'] }, reversible: 'reversible', input: { stylesheet: current.stylesheet, cssLength: css.length } }, async () => {
+  return executeMutation({ tool: 'custom-css.set', category: 'site_config', mutation: true, target: { type: 'custom-css', id: current.stylesheet }, intent: { changes: ['css'] }, reversible: 'reversible', input: { stylesheet: current.stylesheet, cssLength: css.length, cssHash: hashPayload(css), expectedHash } }, async () => {
     snapshot ||= saveCapabilitySnapshot('custom-css', current);
     if (current.backend === 'bridge') {
       const state = await new BridgeClient(client).writeCss(css, expectedHash);

@@ -2,7 +2,7 @@ import { BridgeClient } from '../bridge.js';
 import { resolveBackend, saveCapabilitySnapshot, type BackendPreference } from '../capabilities.js';
 import { WordPress } from '../wordpress.js';
 import { remoteWp } from '../wpcli.js';
-import { executeMutation } from '../policy.js';
+import { executeMutation, hashPayload } from '../policy.js';
 import type { Adapter } from './registry.js';
 
 export type GeneratePressConfig = {
@@ -76,7 +76,7 @@ export async function writeGeneratePressConfig(client: WordPress, changes: Parti
   validateConfig(changes);
   const before = await readGeneratePressConfig(client, preference);
   let snapshot = '';
-  return executeMutation({ tool: 'theme.config.set', category: 'site_config', mutation: true, target: { type: 'theme', id: 'generatepress' }, intent: { changes: Object.keys(changes) }, reversible: 'reversible', input: { fields: Object.keys(changes) } }, async () => {
+  return executeMutation({ tool: 'theme.config.set', category: 'site_config', mutation: true, target: { type: 'theme', id: 'generatepress' }, intent: { changes: Object.keys(changes) }, reversible: 'reversible', input: { fields: Object.keys(changes), changesHash: hashPayload(changes), beforeHash: hashPayload(before.config) } }, async () => {
     snapshot ||= saveCapabilitySnapshot('generatepress', before);
     if (before.backend === 'bridge') {
       const values = Object.fromEntries(Object.entries(changes).map(([field, value]) => [`generate_settings[${settingNames[field as keyof GeneratePressConfig]}]`, value]));

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import dotenv from 'dotenv';
-import { executeMutation, insidePolicyExecution } from './policy.js';
+import { executeMutation, hashPayload, insidePolicyExecution } from './policy.js';
 
 dotenv.config({ quiet: true });
 
@@ -58,7 +58,9 @@ export class WordPress {
   async request<T>(route: string, init: RequestInit = {}): Promise<T> {
     const method = (init.method || 'GET').toUpperCase();
     if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && !insidePolicyExecution()) {
-      return executeMutation({ tool: 'rest.raw', category: 'raw', mutation: true, target: { type: 'rest-route', id: route.split('?')[0] }, reversible: 'partial', input: { method, route: route.split('?')[0] } }, () => this.request<T>(route, init), { site: this.url, interactive: !process.argv.includes('--json') });
+      const body = init.body;
+      const fingerprintableBody = body === undefined || typeof body === 'string' || body instanceof URLSearchParams;
+      return executeMutation({ tool: 'rest.raw', category: 'raw', mutation: true, target: { type: 'rest-route', id: route.split('?')[0] }, reversible: 'partial', input: { method, route: route.split('?')[0], routeHash: hashPayload(route), bodyHash: fingerprintableBody ? hashPayload(body?.toString()) : undefined, agentApprovalUnsupported: !fingerprintableBody } }, () => this.request<T>(route, init), { site: this.url, interactive: !process.argv.includes('--json') });
     }
     const url = new URL(`wp-json/${route.replace(/^\//, '')}`, this.url);
     const headers = new Headers(init.headers);

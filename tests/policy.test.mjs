@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createServer } from 'node:http';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { evaluateStatic, evaluatePolicy, executeMutation, readSession, redact, startSession, PolicyDecisionError } from '../dist/policy.js';
 import { WordPress } from '../dist/wordpress.js';
 import { BridgeClient } from '../dist/bridge.js';
@@ -11,6 +14,7 @@ const site = 'https://example.test/';
 const tempFile = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'wp-agent-policy-')), 'session.json');
 const action = (tool, target, extras = {}) => ({ tool, category: 'content', mutation: true, target, reversible: 'reversible', ...extras });
 const page = (id, status, origin) => ({ type: 'page', id, status, origin });
+const execFileAsync = promisify(execFile);
 
 test('static policy distinguishes reads, owned drafts, existing published pages, and deletion', () => {
   const file = tempFile();
@@ -93,6 +97,91 @@ test('journal records creation, snapshots, decisions, failures, and redacts secr
   assert.equal(redact({ password: 'x', nested: { authorization: 'y' } }).nested.authorization, '[REDACTED]');
   await assert.rejects(() => executeMutation(action('pages.update', page(42, 'draft')), async () => { throw new Error('Backend failed'); }, { file, site, provider: null, snapshot: () => '/tmp/recover.json' }), error => error.snapshot === '/tmp/recover.json');
   assert.equal(readSession(file).actions.at(-1).result.snapshot, '/tmp/recover.json');
+});
+
+test('agent approval retries one exact denied action and records its source', async () => {
+  const file = tempFile();
+  const session = startSession('Publish the reviewed draft.', 'production', site, file);
+  const proposal = action('pages.update', page(105, 'draft'), { intent: { status: 'publish' }, input: { changesHash: 'content-a', beforeHash: 'draft-a' } });
+  let request;
+  await assert.rejects(() => executeMutation(proposal, async () => { throw new Error('must not run'); }, { file, site, provider: null }), error => {
+    assert.ok(error instanceof PolicyDecisionError);
+    assert.equal(error.sessionId, session.sessionId);
+    request = error.action.id;
+    return true;
+  });
+  let calls = 0;
+  const approved = { requestId: request, note: 'User approved publication in chat' };
+  assert.equal(await executeMutation(proposal, async () => { calls++; return 'published'; }, { file, site, provider: null, approval: approved }), 'published');
+  assert.equal(calls, 1);
+  const journal = readSession(file);
+  assert.equal(journal.actions[0].id, request);
+  assert.equal(journal.actions[1].approval.requestId, request);
+  assert.equal(journal.actions[1].approval.note, approved.note);
+  assert.equal(journal.actions[1].result.success, true);
+  await assert.rejects(() => executeMutation(proposal, async () => { calls++; }, { file, site, provider: null, approval: approved }), PolicyDecisionError);
+  assert.equal(calls, 1);
+});
+
+test('agent approval rejects changed payloads and remains usable for the original action', async () => {
+  const file = tempFile();
+  startSession('Publish a draft.', 'production', site, file);
+  const original = action('pages.update', page(105, 'draft'), { intent: { status: 'publish' }, input: { changesHash: 'content-a', beforeHash: 'draft-a' } });
+  let request;
+  await assert.rejects(() => executeMutation(original, async () => undefined, { file, site, provider: null }), error => { request = error.action.id; return error instanceof PolicyDecisionError; });
+  const approval = { requestId: request, note: 'Approved in chat' };
+  let calls = 0;
+  const changed = action('pages.update', page(105, 'draft'), { intent: { status: 'publish' }, input: { changesHash: 'content-b', beforeHash: 'draft-a' } });
+  await assert.rejects(() => executeMutation(changed, async () => { calls++; }, { file, site, provider: null, approval }), PolicyDecisionError);
+  assert.equal(calls, 0);
+  assert.equal(await executeMutation(original, async () => { calls++; return 'ok'; }, { file, site, provider: null, approval }), 'ok');
+  assert.equal(calls, 1);
+});
+
+test('agent approval cannot cross sessions or approve uninspectable raw bodies', async () => {
+  const file = tempFile();
+  startSession('Raw mutation.', 'production', site, file);
+  const proposal = action('rest.raw', { type: 'rest-route', id: 'wp/v2/pages' }, { category: 'raw', input: { bodyHash: 'x', agentApprovalUnsupported: true } });
+  let request;
+  await assert.rejects(() => executeMutation(proposal, async () => undefined, { file, site, provider: null }), error => { request = error.action.id; return error instanceof PolicyDecisionError; });
+  let calls = 0;
+  await assert.rejects(() => executeMutation(proposal, async () => { calls++; }, { file, site, provider: null, approval: { requestId: request, note: 'Approved in chat' } }), PolicyDecisionError);
+  assert.equal(calls, 0);
+  const otherFile = tempFile();
+  startSession('Raw mutation.', 'production', site, otherFile);
+  await assert.rejects(() => executeMutation({ ...proposal, input: { bodyHash: 'x' } }, async () => { calls++; }, { file: otherFile, site, provider: null, approval: { requestId: request, note: 'Approved in chat' } }), PolicyDecisionError);
+  assert.equal(calls, 0);
+});
+
+test('JSON CLI retries an approved page update without an interactive prompt', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'wp-agent-cli-approval-'));
+  const file = path.join(directory, 'session.json');
+  let writes = 0;
+  const server = createServer((request, response) => {
+    response.setHeader('Content-Type', 'application/json');
+    if (request.method === 'GET' && request.url === '/wp-json/wp/v2/pages/105?context=edit') {
+      response.end(JSON.stringify({ id: 105, status: 'draft', slug: 'draft', link: '', template: '', parent: 0, featured_media: 0, menu_order: 0, comment_status: 'closed', modified: '2026-09-24T00:00:00', title: { raw: 'Draft', rendered: 'Draft' }, content: { raw: '<p>Draft</p>', rendered: '<p>Draft</p>' }, meta: {} }));
+    } else if (request.method === 'POST' && request.url === '/wp-json/wp/v2/pages/105') {
+      writes++;
+      response.end(JSON.stringify({ id: 105, status: 'publish', slug: 'draft', link: '', template: '', parent: 0, featured_media: 0, menu_order: 0, comment_status: 'closed', modified: '2026-09-24T00:00:01', title: { raw: 'Draft', rendered: 'Draft' }, content: { raw: '<p>Draft</p>', rendered: '<p>Draft</p>' }, meta: {} }));
+    } else { response.statusCode = 404; response.end('{}'); }
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const url = `http://127.0.0.1:${address.port}/`;
+  const cli = new URL('../dist/cli.js', import.meta.url).pathname;
+  const env = { ...process.env, WP_URL: url, WP_USER: 'test', WP_APP_PASSWORD: 'test', WP_AGENT_SESSION_FILE: file, TYPESAFE_API_KEY: '' };
+  try {
+    startSession('Publish the draft.', 'production', url, file);
+    let denial;
+    try { await execFileAsync(process.execPath, [cli, '--json', 'pages', 'update', '105', '--publish'], { cwd: directory, env }); }
+    catch (error) { denial = JSON.parse(error.stderr); }
+    assert.equal(denial.error.policy.decision, 'require_approval');
+    assert.equal(writes, 0);
+    const result = await execFileAsync(process.execPath, [cli, '--json', '--approval-request', denial.error.approvalRequestId, '--approval-note', 'Approved in chat', 'pages', 'update', '105', '--publish'], { cwd: directory, env });
+    assert.equal(JSON.parse(result.stdout).status, 'publish');
+    assert.equal(writes, 1);
+  } finally { await new Promise(resolve => server.close(resolve)); }
 });
 
 test('raw REST mutations stop before HTTP while reads stay available', async () => {

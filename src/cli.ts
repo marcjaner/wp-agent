@@ -12,13 +12,18 @@ import { PlaywrightDriver, previewUrl } from './browser.js';
 import { clonePage, copyPageBlock, removePageBlock, replacePageImage, replacePageText, setPageBlockStyles, verifyPage as verifyPageCore } from './pages.js';
 import { generateBlocksStyleSummary } from './adapters/generateblocks.js';
 import { remoteWp } from './wpcli.js';
-import { executeMutation, evaluatePolicy, readSession, recordRead, redact, startSession, JevPolicyProvider, PolicyDecisionError, type Environment, type ProposedAction } from './policy.js';
+import { executeMutation, evaluatePolicy, hashPayload, readSession, recordRead, redact, setCliApproval, startSession, JevPolicyProvider, PolicyDecisionError, type Environment, type ProposedAction } from './policy.js';
 import { saveCapabilitySnapshot } from './capabilities.js';
 
 const program = new Command();
-program.name('wp-agent').description('Structured WordPress control and browser verification').option('--json', 'Machine-readable JSON output');
+program.name('wp-agent').description('Structured WordPress control and browser verification').option('--json', 'Machine-readable JSON output').option('--approval-request <id>', 'Retry one matching approval request after user approval').option('--approval-note <note>', 'Where the user approved the action');
 program.configureOutput({ writeErr: () => {} });
 program.exitOverride();
+program.hook('preAction', () => {
+  const options = program.opts();
+  if (!!options.approvalRequest !== !!options.approvalNote) throw new Error('Use --approval-request and --approval-note together.');
+  setCliApproval(options.approvalRequest ? { requestId: options.approvalRequest, note: options.approvalNote } : undefined);
+});
 const wp = () => new WordPress();
 const id = (value: string) => {
   const parsed = Number(value);
@@ -143,7 +148,7 @@ pages.command('get <id>').action(async value => {
 });
 pages.command('create').requiredOption('--title <title>').option('--content <html>').option('--content-file <path>').option('--publish').option('--template <template>').action(async options => {
   const content = options.contentFile ? fs.readFileSync(options.contentFile, 'utf8') : text(options.content);
-  const page = await mutate({ tool: 'pages.create', category: 'content', mutation: true, target: { type: 'page', status: options.publish ? 'publish' : 'draft' }, intent: { status: options.publish ? 'publish' : 'draft' }, reversible: 'reversible', input: { title: options.title, contentLength: content.length, template: options.template } }, () => wp().post<Page>('wp/v2/pages', { title: options.title, content, status: options.publish ? 'publish' : 'draft', template: options.template }), { created: result => ({ type: 'page', id: result.id, status: result.status }) });
+  const page = await mutate({ tool: 'pages.create', category: 'content', mutation: true, target: { type: 'page', status: options.publish ? 'publish' : 'draft' }, intent: { status: options.publish ? 'publish' : 'draft' }, reversible: 'reversible', input: { title: options.title, contentLength: content.length, contentHash: hashPayload(content), template: options.template } }, () => wp().post<Page>('wp/v2/pages', { title: options.title, content, status: options.publish ? 'publish' : 'draft', template: options.template }), { created: result => ({ type: 'page', id: result.id, status: result.status }) });
   output(pageSummary(page));
 });
 pages.command('update <id>').option('--title <title>').option('--content <html>').option('--content-file <path>').option('--status <status>').option('--template <template>').option('--parent <id>').option('--publish').action(async (value, options) => {
@@ -159,7 +164,7 @@ pages.command('update <id>').option('--title <title>').option('--content <html>'
   if (options.publish) changes.status = 'publish';
   if (!Object.keys(changes).length) throw new Error('Provide a field to update.');
   let snapshot = '';
-  const updated = await mutate({ tool: 'pages.update', category: 'content', mutation: true, target: { type: 'page', id: previous.id, status: previous.status, title: previous.title.raw || previous.title.rendered }, intent: { changes: Object.keys(changes), status: typeof changes.status === 'string' ? changes.status : undefined }, reversible: 'reversible', input: { pageId: previous.id, fields: Object.keys(changes) } }, async () => {
+  const updated = await mutate({ tool: 'pages.update', category: 'content', mutation: true, target: { type: 'page', id: previous.id, status: previous.status, title: previous.title.raw || previous.title.rendered }, intent: { changes: Object.keys(changes), status: typeof changes.status === 'string' ? changes.status : undefined }, reversible: 'reversible', input: { pageId: previous.id, fields: Object.keys(changes), changesHash: hashPayload(changes), beforeModified: previous.modified, beforeHash: hashPayload(previous.content.raw || '') } }, async () => {
     snapshot ||= await client.snapshot(previous);
     return client.post<Page>(`wp/v2/pages/${previous.id}`, changes);
   }, { snapshot: async () => snapshot = await client.snapshot(previous) });
@@ -169,7 +174,7 @@ pages.command('delete <id>').requiredOption('--yes', 'Confirm deletion').option(
   const client = wp();
   const previous = await client.page(id(value));
   let snapshot = '';
-  await mutate({ tool: 'pages.delete', category: 'content', mutation: true, target: { type: 'page', id: previous.id, status: previous.status, title: previous.title.raw || previous.title.rendered }, intent: { changes: [options.force ? 'permanent-delete' : 'trash'] }, reversible: options.force ? 'irreversible' : 'partial', input: { pageId: previous.id, force: !!options.force } }, async () => {
+  await mutate({ tool: 'pages.delete', category: 'content', mutation: true, target: { type: 'page', id: previous.id, status: previous.status, title: previous.title.raw || previous.title.rendered }, intent: { changes: [options.force ? 'permanent-delete' : 'trash'] }, reversible: options.force ? 'irreversible' : 'partial', input: { pageId: previous.id, force: !!options.force, beforeModified: previous.modified, beforeHash: hashPayload(previous.content.raw || '') } }, async () => {
     snapshot ||= await client.snapshot(previous);
     return client.delete(`wp/v2/pages/${previous.id}?force=${options.force ? 'true' : 'false'}`);
   }, { snapshot: async () => snapshot = await client.snapshot(previous) });
@@ -336,7 +341,7 @@ themes.command('install <slug>').action(async slug => {
 themes.command('activate <slug>').action(async slug => {
   if (!/^[a-z0-9-]+$/.test(slug)) throw new Error('Invalid theme slug.');
   const before = await wp().all<ArrayItem>('wp/v2/themes');
-  await mutate({ tool: 'theme.activate', category: 'theme', mutation: true, target: { type: 'theme', id: slug }, reversible: 'reversible', input: { slug } }, () => remoteWp(['theme', 'activate', slug]), { snapshot: () => saveCapabilitySnapshot('themes', before) });
+  await mutate({ tool: 'theme.activate', category: 'theme', mutation: true, target: { type: 'theme', id: slug }, reversible: 'reversible', input: { slug, activeTheme: before.find(theme => theme.status === 'active')?.stylesheet } }, () => remoteWp(['theme', 'activate', slug]), { snapshot: () => saveCapabilitySnapshot('themes', before) });
   const active = (await wp().all<ArrayItem>('wp/v2/themes')).find(theme => theme.status === 'active');
   if (active?.stylesheet !== slug) throw new Error(`Theme activation was not confirmed: ${slug}`);
   output(active);
@@ -379,7 +384,7 @@ program.command('verify <page-id>').option('--expect-status <status>', 'Expected
 program.parseAsync(process.argv).catch(error => {
   if (error?.code === 'commander.helpDisplayed') return;
   const message = (error instanceof Error ? error.message : String(error)).replace(/^error:\s*/i, '');
-  const data = { ok: false, error: { code: error instanceof WpError ? error.code : error?.code || 'command_error', status: error instanceof WpError ? error.status : undefined, message: redact(message), snapshot: error?.snapshot, ...(error instanceof PolicyDecisionError ? { action: redact(error.action), policy: error.assessment } : {}) } };
+  const data = { ok: false, error: { code: error instanceof WpError ? error.code : error?.code || 'command_error', status: error instanceof WpError ? error.status : undefined, message: redact(message), snapshot: error?.snapshot, ...(error instanceof PolicyDecisionError ? { action: redact(error.action), policy: error.assessment, approvalRequestId: error.action.id, sessionId: error.sessionId } : {}) } };
   console.error(program.opts().json || process.argv.includes('--json') ? JSON.stringify(data) : `Error: ${data.error.message}${data.error.snapshot ? `\nPrevious state snapshot: ${data.error.snapshot}` : ''}`);
   process.exitCode = 1;
 });

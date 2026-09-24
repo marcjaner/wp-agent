@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline/promises';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
@@ -26,6 +26,7 @@ export type SemanticResult = { classification: 'consistent' | 'uncertain' | 'sus
 export type JournalResource = { origin: Origin; initialStatus?: string; status?: string; createdBy?: string; modifiedBy?: string };
 export type JournalAction = {
   id: string; timestamp: string; tool: string; target?: Resource; source?: Resource; input?: Record<string, unknown>;
+  fingerprint?: string; approval?: { requestId: string; note: string };
   policy: PolicyAssessment; result: { success: boolean; created?: Resource; snapshot?: string; error?: string };
 };
 export type Session = {
@@ -37,7 +38,25 @@ const rank: Record<Decision, number> = { allow: 0, allow_with_snapshot: 1, requi
 const secretKey = /password|secret|token|api.?key|authorization|cookie|credential|private.?key/i;
 const secretValue = /(Bearer\s+\S+|Basic\s+[A-Za-z0-9+/=]+|(?:sk|ts)_[A-Za-z0-9_-]{12,})/gi;
 const executionScope = new AsyncLocalStorage<boolean>();
+export type Approval = { requestId: string; note: string };
+let cliApproval: Approval | undefined;
 export function insidePolicyExecution(): boolean { return executionScope.getStore() === true; }
+export function setCliApproval(approval?: Approval): void { cliApproval = approval; }
+
+export function hashPayload(value: unknown): string {
+  return createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value) ?? 'undefined').digest('hex');
+}
+
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, canonical(item)]));
+  return value;
+}
+
+function actionFingerprint(action: ProposedAction, session: Session): string {
+  const { id: _id, ...proposal } = action;
+  return hashPayload(JSON.stringify(canonical({ sessionId: session.sessionId, environment: session.environment, action: proposal })));
+}
 
 export function redact(value: unknown, key = ''): unknown {
   if (secretKey.test(key)) return '[REDACTED]';
@@ -207,7 +226,7 @@ export async function evaluatePolicy(action: ProposedAction, session: Session, p
 
 export class PolicyDecisionError extends Error {
   code = 'policy_decision';
-  constructor(public action: ProposedAction, public assessment: PolicyAssessment) { super(assessment.reason); }
+  constructor(public action: ProposedAction, public assessment: PolicyAssessment, public sessionId?: string) { super(assessment.reason); }
 }
 
 export function recordRead(tool: string, target: Resource | undefined, site: string, input?: Record<string, unknown>, file = sessionFile()): void {
@@ -221,6 +240,7 @@ export function recordRead(tool: string, target: Resource | undefined, site: str
 
 export type ExecutionOptions<T> = {
   site: string; file?: string; provider?: SemanticProvider | null; interactive?: boolean;
+  approval?: Approval;
   snapshot?: () => Promise<string> | string;
   created?: (result: T) => Resource | undefined;
 };
@@ -235,15 +255,31 @@ export async function executeMutation<T>(proposal: ProposedAction, perform: () =
   if (sourceKey && !session.resources[sourceKey]) session.resources[sourceKey] = { origin: action.source?.origin || 'preexisting', initialStatus: action.source?.status, status: action.source?.status };
   const provider = options.provider === undefined && process.env.TYPESAFE_API_KEY ? new JevPolicyProvider() : options.provider;
   const assessment = await evaluatePolicy(action, session, provider);
-  const record: JournalAction = { id: action.id, timestamp: new Date().toISOString(), tool: action.tool, target: action.target, source: action.source, input: redact(action.input || {}) as Record<string, unknown>, policy: assessment, result: { success: false } };
-  if (assessment.decision === 'require_approval' && options.interactive && process.stdin.isTTY) {
+  const record: JournalAction = { id: action.id, timestamp: new Date().toISOString(), tool: action.tool, target: action.target, source: action.source, input: redact(action.input || {}) as Record<string, unknown>, fingerprint: actionFingerprint(action, session), policy: assessment, result: { success: false } };
+  let recorded = false;
+  const saveRecord = () => { if (!recorded) { session.actions.push(record); recorded = true; } writeSession(session, file); };
+  const approval = options.approval ?? cliApproval;
+  if (approval) {
+    const request = session.actions.find(item => item.id === approval.requestId);
+    const used = session.actions.some(item => item.approval?.requestId === approval.requestId);
+    if (assessment.decision !== 'require_approval' || !approval.note?.trim() || approval.note.length > 500 || action.input?.agentApprovalUnsupported === true || !request || request.policy.decision !== 'require_approval' || request.result.error !== 'Approval required or action denied.' || request.fingerprint !== record.fingerprint || used) {
+      const rejected = { ...assessment, reason: `${assessment.reason} Approval request is missing, used, or does not match this exact action.` };
+      record.policy = rejected;
+      record.result.error = 'Approval request mismatch.';
+      saveRecord();
+      throw new PolicyDecisionError(action, rejected, session.sessionId);
+    }
+    record.approval = { requestId: approval.requestId, note: approval.note.trim() };
+    record.policy = { ...assessment, reason: `${assessment.reason} Approved by agent attestation: ${approval.note.trim()}` };
+    saveRecord();
+  } else if (assessment.decision === 'require_approval' && options.interactive && process.stdin.isTTY) {
     const prompt = createInterface({ input: process.stdin, output: process.stderr });
     const answer = await prompt.question(`${action.tool} ${action.target?.type || ''} ${action.target?.id || ''} ${action.target?.title || ''}\nEnvironment: ${session.environment.type}; risk: ${assessment.staticRisk}\n${assessment.reason}\nType approve to continue: `).finally(() => prompt.close());
     if (answer.trim() === 'approve') record.policy = { ...assessment, reason: `${assessment.reason} Approved interactively.` };
-    else { record.result.error = 'Approval denied.'; session.actions.push(record); writeSession(session, file); throw new PolicyDecisionError(action, assessment); }
+    else { record.result.error = 'Approval denied.'; saveRecord(); throw new PolicyDecisionError(action, assessment, session.sessionId); }
   } else if (assessment.decision === 'require_approval' || assessment.decision === 'deny') {
     record.result.error = 'Approval required or action denied.';
-    session.actions.push(record); writeSession(session, file); throw new PolicyDecisionError(action, assessment);
+    saveRecord(); throw new PolicyDecisionError(action, assessment, session.sessionId);
   }
   try {
     if (assessment.decision === 'allow_with_snapshot' && !options.snapshot) throw new Error('Policy requires a snapshot but this operation has no snapshot provider.');
@@ -257,11 +293,11 @@ export async function executeMutation<T>(proposal: ProposedAction, perform: () =
     }
     if (targetKey) { session.resources[targetKey].modifiedBy = action.id; if (action.intent?.status) session.resources[targetKey].status = action.intent.status; }
     record.result.success = true;
-    session.actions.push(record); writeSession(session, file);
+    saveRecord();
     return result;
   } catch (error) {
     record.result.error = error instanceof Error ? error.message : String(error);
-    session.actions.push(record); writeSession(session, file);
+    saveRecord();
     if (record.result.snapshot && error instanceof Error) (error as Error & { snapshot?: string }).snapshot = record.result.snapshot;
     throw error;
   }

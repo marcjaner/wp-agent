@@ -2,7 +2,7 @@ import path from 'node:path';
 import { copyBlock, removeBlock, replaceImageBlock, replaceText } from './blocks.js';
 import { previewUrl, type BrowserDriver } from './browser.js';
 import { WordPress, pageSummary, type Page } from './wordpress.js';
-import { executeMutation } from './policy.js';
+import { executeMutation, hashPayload } from './policy.js';
 import { setGenerateBlocksStyles, type GenerateBlocksStylePatch } from './adapters/generateblocks.js';
 
 export async function clonePage(client: WordPress, sourceId: number, title?: string): Promise<{ source: Page; clone: Page }> {
@@ -23,7 +23,7 @@ export async function replacePageText(client: WordPress, pageId: number, from: s
   const page = await client.page(pageId);
   const { content, count } = replaceText(page.content.raw || '', from, to);
   let snapshot = '';
-  const updated = await executeMutation({ tool: 'content.replace', category: 'content', mutation: true, target: { type: 'page', id: page.id, status: page.status }, intent: { changes: ['content'] }, reversible: 'reversible', input: { pageId, replacements: count } }, async () => {
+  const updated = await executeMutation({ tool: 'content.replace', category: 'content', mutation: true, target: { type: 'page', id: page.id, status: page.status }, intent: { changes: ['content'] }, reversible: 'reversible', input: { pageId, replacements: count, beforeHash: hashPayload(page.content.raw || ''), afterHash: hashPayload(content) } }, async () => {
     snapshot ||= await client.snapshot(page);
     return client.post<Page>(`wp/v2/pages/${page.id}`, { content });
   }, { site: client.url, snapshot: async () => snapshot = await client.snapshot(page) });
@@ -35,7 +35,7 @@ export async function copyPageBlock(client: WordPress, sourceId: number, sourceP
   const target = await client.page(targetId);
   const content = copyBlock(source.content.raw || '', sourcePath, target.content.raw || '', afterPath);
   let snapshot = '';
-  const updated = await executeMutation({ tool: 'blocks.copy', category: 'content', mutation: true, target: { type: 'page', id: target.id, status: target.status }, intent: { changes: ['content'], sourceId }, reversible: 'reversible', input: { sourceId, sourcePath, targetId, afterPath } }, async () => {
+  const updated = await executeMutation({ tool: 'blocks.copy', category: 'content', mutation: true, target: { type: 'page', id: target.id, status: target.status }, intent: { changes: ['content'], sourceId }, reversible: 'reversible', input: { sourceId, sourcePath, targetId, afterPath, sourceHash: hashPayload(source.content.raw || ''), beforeHash: hashPayload(target.content.raw || ''), afterHash: hashPayload(content) } }, async () => {
     snapshot ||= await client.snapshot(target);
     return client.post<Page>(`wp/v2/pages/${targetId}`, { content });
   }, { site: client.url, snapshot: async () => snapshot = await client.snapshot(target) });
@@ -48,7 +48,7 @@ export async function setPageBlockStyles(client: WordPress, pageId: number, bloc
   const page = await client.page(pageId);
   const content = setGenerateBlocksStyles(page.content.raw || '', blockPath, patch);
   let snapshot = '';
-  const updated = await executeMutation({ tool: 'blocks.style.set', category: 'content', mutation: true, target: { type: 'page', id: page.id, status: page.status }, intent: { changes: ['layout', 'responsive'] }, reversible: 'reversible', input: { pageId, blockPath, fields: Object.keys(patch) } }, async () => {
+  const updated = await executeMutation({ tool: 'blocks.style.set', category: 'content', mutation: true, target: { type: 'page', id: page.id, status: page.status }, intent: { changes: ['layout', 'responsive'] }, reversible: 'reversible', input: { pageId, blockPath, fields: Object.keys(patch), beforeHash: hashPayload(page.content.raw || ''), afterHash: hashPayload(content) } }, async () => {
     snapshot ||= await client.snapshot(page);
     return client.post<Page>(`wp/v2/pages/${pageId}`, { content });
   }, { site: client.url, snapshot: async () => snapshot = await client.snapshot(page) });
@@ -61,7 +61,7 @@ export async function removePageBlock(client: WordPress, pageId: number, blockPa
   const page = await client.page(pageId);
   const content = removeBlock(page.content.raw || '', blockPath);
   let snapshot = '';
-  await executeMutation({ tool: 'blocks.remove', category: 'content', mutation: true, target: { type: 'page', id: page.id, status: page.status }, intent: { changes: ['content'] }, reversible: 'reversible', input: { pageId, blockPath } }, async () => {
+  await executeMutation({ tool: 'blocks.remove', category: 'content', mutation: true, target: { type: 'page', id: page.id, status: page.status }, intent: { changes: ['content'] }, reversible: 'reversible', input: { pageId, blockPath, beforeHash: hashPayload(page.content.raw || ''), afterHash: hashPayload(content) } }, async () => {
     snapshot ||= await client.snapshot(page);
     return client.post<Page>(`wp/v2/pages/${pageId}`, { content });
   }, { site: client.url, snapshot: async () => snapshot = await client.snapshot(page) });
@@ -79,7 +79,7 @@ export async function replacePageImage(client: WordPress, pageId: number, blockP
   const sizes = Object.fromEntries(Object.entries(media.media_details?.sizes || {}).map(([name, value]) => [name, value.source_url]));
   const content = replaceImageBlock(page.content.raw || '', blockPath, { id: media.id, url: media.source_url, alt: media.alt_text || '', sizes });
   let snapshot = '';
-  await executeMutation({ tool: 'blocks.replace-image', category: 'content', mutation: true, target: { type: 'page', id: page.id, status: page.status }, intent: { changes: ['content'] }, reversible: 'reversible', input: { pageId, blockPath, mediaId } }, async () => {
+  await executeMutation({ tool: 'blocks.replace-image', category: 'content', mutation: true, target: { type: 'page', id: page.id, status: page.status }, intent: { changes: ['content'] }, reversible: 'reversible', input: { pageId, blockPath, mediaId, beforeHash: hashPayload(page.content.raw || ''), afterHash: hashPayload(content) } }, async () => {
     snapshot ||= await client.snapshot(page);
     return client.post<Page>(`wp/v2/pages/${pageId}`, { content });
   }, { site: client.url, snapshot: async () => snapshot = await client.snapshot(page) });

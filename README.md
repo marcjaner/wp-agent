@@ -59,7 +59,17 @@ node dist/cli.js policy explain pages.delete 42 --json
 node dist/cli.js policy explain pages.update 105 --publish --json
 ```
 
-The policy evaluates WordPress operations before REST, Bridge, or WP-CLI executes them. Reads and edits to drafts created in the current session usually proceed. Editing a preexisting published production page, deleting preexisting content, publishing, or changing plugins and themes on production requires approval. Reversible changes on less important environments may proceed with a snapshot. `--yes` for deletion does not override a policy decision. Interactive CLI commands ask for an explicit `approve`; `--json` commands return a `policy_decision` error with the action, risk, decision, and reason, without executing the operation. Raw REST and WP-CLI mutation escape hatches are classified conservatively.
+The policy evaluates WordPress operations before REST, Bridge, or WP-CLI executes them. Reads and edits to drafts created in the current session usually proceed. Editing a preexisting published production page, deleting preexisting content, publishing, or changing plugins and themes on production requires approval. Reversible changes on less important environments may proceed with a snapshot. `--yes` for deletion does not override a policy decision. Interactive CLI commands ask for an explicit `approve`. In JSON mode, a denied command returns a `policy_decision` error with `approvalRequestId`, `sessionId`, the proposed action, and the policy assessment, without executing the operation. `policy explain` is a preview; it does not issue an approval request. Raw REST and WP-CLI mutation escape hatches are classified conservatively.
+
+An agent can ask the user to approve the **specific denied action in chat**, then retry the same command with the returned request ID and a brief note identifying that approval:
+
+```bash
+wp-agent --json pages update 105 --publish
+# Inspect error.action and error.policy; ask the user to approve this exact change.
+wp-agent --json --approval-request <approvalRequestId> --approval-note "User approved publishing page 105 in chat" pages update 105 --publish
+```
+
+The request works once, in the same session, for the same site, action, payload, and observed content state. If any of those change, run the command without approval flags and request fresh approval. The journal links the approved attempt to the denied request and records the note. wp-agent cannot verify chat identity or consent: the calling agent must wait for actual user approval and must not invent the note. An approval request is consumed before execution, including when execution fails. The interactive `approve` prompt remains available for direct CLI use. Agent approval is unavailable for raw REST bodies that cannot be fingerprinted.
 
 The journal is `.wp-agent/session.json`; starting a new session archives the previous journal under `.wp-agent/sessions/`. It records the goal, environment, resource ownership, action decisions, snapshots, and outcomes. When an operation fails after taking a snapshot, the error includes its path for review and recovery. Secrets are redacted, and `.wp-agent/` is ignored by Git. Set `WP_AGENT_SESSION_FILE` only when a separate journal path is needed, such as an isolated test. A human should review the journal and snapshots before restoring any previous state; wp-agent does not promise universal rollback.
 
