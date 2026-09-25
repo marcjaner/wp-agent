@@ -12,5 +12,7 @@ export type { ImageMedia } from './blocks.js';
 export { PlaywrightDriver, previewUrl } from './browser.js';
 export type { BrowserDriver, RenderResult, RenderedBlock } from './browser.js';
 export { clonePage, copyPageBlock, removePageBlock, replacePageImage, replacePageText, setPageBlockStyles, verifyPage } from './pages.js';
+export { classifyWpCli, remoteWp } from './wpcli.js';
+export type { WpCliAccess } from './wpcli.js';
 export { executeMutation, evaluatePolicy, evaluateStatic, readSession, recordRead, startSession, JevPolicyProvider, PolicyDecisionError } from './policy.js';
 export type { Approval, ProposedAction, PolicyAssessment, SemanticProvider, SemanticResult, Session, Environment, Decision, Risk, Resource } from './policy.js';

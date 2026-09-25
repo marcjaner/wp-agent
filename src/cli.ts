@@ -11,7 +11,7 @@ import { blockTree } from './blocks.js';
 import { PlaywrightDriver, previewUrl } from './browser.js';
 import { clonePage, copyPageBlock, removePageBlock, replacePageImage, replacePageText, setPageBlockStyles, verifyPage as verifyPageCore } from './pages.js';
 import { generateBlocksStyleSummary } from './adapters/generateblocks.js';
-import { remoteWp } from './wpcli.js';
+import { classifyWpCli, remoteWp, wpCliAction } from './wpcli.js';
 import { executeMutation, evaluatePolicy, hashPayload, readSession, recordRead, redact, setCliApproval, startSession, JevPolicyProvider, PolicyDecisionError, type Environment, type ProposedAction } from './policy.js';
 import { saveCapabilitySnapshot } from './capabilities.js';
 
@@ -379,6 +379,20 @@ program.command('verify <page-id>').option('--expect-status <status>', 'Expected
   recordRead('pages.verify', { type: 'page', id: id(value), status: result.page.status }, wp().url, { passed: result.ok });
   output(result, `${result.ok ? '✓' : '✗'} Page ${value}: ${result.checks.status}\nDesktop: ${result.desktop.screenshot}\nMobile: ${result.mobile.screenshot}\nErrors: ${[...result.desktop.errors, ...result.mobile.errors].join('; ') || 'none'}`);
   if (!result.ok) process.exitCode = 1;
+});
+
+program.command('wpcli').description('Run a WP-CLI command over SSH; mutations need approval').argument('<args...>', 'WP-CLI arguments; put them after -- when they include options').allowUnknownOption().action(async (args: string[]) => {
+  const access = classifyWpCli(args);
+  if (access.refused) throw new Error(access.refused);
+  const site = wp().url;
+  let stdout: string;
+  if (access.readOnly) {
+    stdout = await remoteWp(args);
+    recordRead('wpcli.run', { type: 'wp-cli', id: args.find(arg => !arg.startsWith('-')) }, site, { args });
+  } else stdout = await mutate(wpCliAction('wpcli.run', args), () => remoteWp(args));
+  let data: unknown;
+  try { data = JSON.parse(stdout); } catch { data = undefined; }
+  output({ args, readOnly: access.readOnly, stdout, ...(data === undefined ? {} : { data }) }, stdout);
 });
 
 program.parseAsync(process.argv).catch(error => {
