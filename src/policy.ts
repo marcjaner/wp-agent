@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline/promises';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { normalizeSiteUrl } from './site-url.js';
 
 export type Environment = 'disposable' | 'staging' | 'production';
 export type Decision = 'allow' | 'allow_with_snapshot' | 'require_approval' | 'deny';
@@ -95,11 +96,14 @@ export function readSession(file = sessionFile()): Session | null {
 export function writeSession(session: Session, file = sessionFile()): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(temporary, JSON.stringify(redact(session), null, 2) + '\n', { mode: 0o600 });
+  const safe = redact(session) as Session;
+  safe.environment.site = normalizeSiteUrl(session.environment.site);
+  fs.writeFileSync(temporary, JSON.stringify(safe, null, 2) + '\n', { mode: 0o600 });
   fs.renameSync(temporary, file);
 }
 
 export function startSession(goal: string | undefined, environment: Environment, site: string, file = sessionFile()): Session {
+  site = normalizeSiteUrl(site);
   const current = readSession(file);
   if (current?.environment.site && current.environment.site !== site) throw new Error('Existing session belongs to another site. Finish or move its journal before starting a new site session.');
   if (current) {
@@ -112,6 +116,7 @@ export function startSession(goal: string | undefined, environment: Environment,
 }
 
 function sessionFor(site: string, file: string): Session {
+  site = normalizeSiteUrl(site);
   const existing = readSession(file);
   if (existing) {
     if (!existing.environment.site) throw new Error('Legacy session has no site. Start a new session to archive it.');

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import dotenv from 'dotenv';
 import { executeMutation, hashPayload, insidePolicyExecution } from './policy.js';
+import { normalizeSiteUrl } from './site-url.js';
 
 dotenv.config({ quiet: true });
 
@@ -34,19 +35,19 @@ export function siteUrl(): string {
   const saved = fs.existsSync(config) ? JSON.parse(fs.readFileSync(config, 'utf8')).url : undefined;
   const url = saved || process.env.WP_URL;
   if (!url) throw new Error('Site URL missing. Run wp-agent connect <url> or set WP_URL.');
-  return new URL(url).toString();
+  return normalizeSiteUrl(url);
 }
 
 export function saveSiteUrl(url: string): void {
-  const normalized = new URL(url);
-  if (!['https:', 'http:'].includes(normalized.protocol)) throw new Error('Expected an HTTP(S) WordPress URL.');
-  if (normalized.username || normalized.password) throw new Error('Do not put credentials in the site URL.');
+  const normalized = normalizeSiteUrl(url);
   fs.mkdirSync('.wp-agent', { recursive: true });
-  fs.writeFileSync('.wp-agent/config.json', JSON.stringify({ url: normalized.toString() }, null, 2) + '\n', { mode: 0o600 });
+  fs.writeFileSync('.wp-agent/config.json', JSON.stringify({ url: normalized }, null, 2) + '\n', { mode: 0o600 });
 }
 
 export class WordPress {
-  constructor(public url = siteUrl(), private credentials?: { user: string; appPassword: string }) {}
+  constructor(public url = siteUrl(), private credentials?: { user: string; appPassword: string }) {
+    this.url = normalizeSiteUrl(url);
+  }
 
   private authorization(): string {
     const user = this.credentials?.user || process.env.WP_USER;
