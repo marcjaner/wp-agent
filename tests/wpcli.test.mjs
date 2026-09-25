@@ -20,7 +20,7 @@ test('WP-CLI reads are limited to known command paths', () => {
     '$p = wp_get_custom_css_post(); echo base64_encode($p ? $p->post_content : "");',
     '$p = wp_get_custom_css_post(); echo $p ? $p->ID : "";',
   ]) assert.equal(classifyWpCli(['eval', code]).readOnly, true, code);
-  for (const args of [['eval', 'echo 1;'], ['option', 'update', 'list', 'x'], ['post', 'update', '5', 'get'], ['search-replace', 'a', 'b'], ['db', 'query', 'SELECT 1'], ['list'], ['option', 'get', 'blogname', '--exec=wp_delete_post(1);'], ['cron', 'event', 'run', '--all'], ['post', 'is-active', '5'], ['plugin', 'random-plugin-verb'], ['post', 'meta', 'search', '5', 'needle']])
+  for (const args of [['eval', 'echo 1;'], ['option', 'update', 'list', 'x'], ['post', 'update', '5', 'get'], ['search-replace', 'a', 'b'], ['db', 'query', 'SELECT 1'], ['list'], ['option', 'get', 'blogname', '--exec=wp_delete_post(1);'], ['cron', 'event', 'run', '--all'], ['post', 'is-active', '5'], ['plugin', 'random-plugin-verb'], ['post', 'meta', 'search', '5', 'needle'], ['post', 'list', 'unknown-subcommand'], ['option', 'get', 'blogname', 'unknown-subcommand']])
     assert.equal(classifyWpCli(args).readOnly, false, args.join(' '));
   assert.match(classifyWpCli(['post', 'list', '--ssh=other.host']).refused, /--ssh/);
   assert.match(classifyWpCli(['post', 'list', '--path=/elsewhere']).refused, /--path/);
@@ -86,6 +86,15 @@ test('an unknown plugin command path needs approval before SSH', async () => {
   try { await ssh.run(['wpcli', 'plugin', 'custom-inspect', '--format=json']); } catch (error) { denial = JSON.parse(error.stderr); }
   assert.equal(denial.error.policy.decision, 'require_approval');
   assert.deepEqual(denial.error.action.input.args, ['plugin', 'custom-inspect', '--format=json']);
+  assert.equal(ssh.calls().length, 0);
+});
+
+test('an unknown suffix after a read command needs approval before SSH', async () => {
+  const ssh = fakeSsh();
+  startSession('Inspect posts.', 'production', site, ssh.file);
+  let denial;
+  try { await ssh.run(['wpcli', 'post', 'list', 'unknown-subcommand']); } catch (error) { denial = JSON.parse(error.stderr); }
+  assert.equal(denial.error.policy.decision, 'require_approval');
   assert.equal(ssh.calls().length, 0);
 });
 

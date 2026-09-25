@@ -10,17 +10,17 @@ const execFileAsync = promisify(execFile);
 
 function quote(value: string): string { return `'${value.replace(/'/g, `'\\''`)}'`; }
 
-// Only known WP-CLI command paths are reads. Plugins can add commands under core namespaces.
-const readCommands = new Set([
-  'core version', 'help',
-  'post get', 'post list', 'post meta get', 'post meta list',
-  'option get', 'option list',
-  'plugin is-active', 'plugin is-installed', 'plugin list', 'plugin status',
-  'theme is-active', 'theme is-installed', 'theme list', 'theme mod list', 'theme status',
-  'user get', 'user list', 'site get', 'site list',
-  'term get', 'term list', 'taxonomy list', 'post-type list',
-  'comment get', 'comment list', 'media get', 'media list',
-  'transient get', 'transient list', 'cron event list', 'rewrite list',
+// Exact core command paths and required positional argument counts. Unlisted forms need approval.
+const readCommands = new Map<string, number>([
+  ['core version', 0],
+  ['post get', 1], ['post list', 0], ['post meta get', 2], ['post meta list', 1],
+  ['option get', 1], ['option list', 0],
+  ['plugin is-active', 1], ['plugin is-installed', 1], ['plugin list', 0], ['plugin status', 0],
+  ['theme is-active', 1], ['theme is-installed', 1], ['theme list', 0], ['theme mod list', 0], ['theme status', 0],
+  ['user get', 1], ['user list', 0], ['site get', 1], ['site list', 0],
+  ['term get', 1], ['term list', 1], ['taxonomy list', 0], ['post-type list', 0],
+  ['comment get', 1], ['comment list', 0], ['media get', 1], ['media list', 0],
+  ['transient get', 1], ['transient list', 0], ['cron event list', 0], ['rewrite list', 0],
 ]);
 // Global flags that run PHP make any command a mutation; flags that retarget WP-CLI are refused.
 const codeFlags = new Set(['exec', 'require']);
@@ -42,9 +42,10 @@ export function classifyWpCli(args: string[]): WpCliAccess {
   if (words[0] === 'shell' || words[0] === 'db' && words[1] === 'cli') return { readOnly: false, refused: 'Interactive WP-CLI commands are not supported.' };
   if (flags.some(flag => codeFlags.has(flag))) return { readOnly: false };
   if (args.length === 2 && args[0] === 'eval' && readEval.includes(args[1])) return { readOnly: true };
-  return { readOnly: [...readCommands].some(command => {
+  if (words[0] === 'help') return { readOnly: true };
+  return { readOnly: [...readCommands].some(([command, positional]) => {
     const path = command.split(' ');
-    return path.every((part, index) => words[index] === part);
+    return words.length === path.length + positional && path.every((part, index) => words[index] === part);
   }) };
 }
 
