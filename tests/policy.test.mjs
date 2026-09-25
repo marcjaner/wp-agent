@@ -127,6 +127,27 @@ test('short app passwords do not corrupt the saved site or approval retry', asyn
   }
 });
 
+test('starting a new session archives a legacy journal without a site', () => {
+  const file = tempFile();
+  const legacy = {
+    sessionId: 'legacy-session',
+    goal: 'Inspect an old site.',
+    environment: { type: 'production' },
+    startedAt: '2025-01-01T00:00:00.000Z',
+    resources: {},
+    actions: [],
+  };
+  fs.writeFileSync(file, JSON.stringify(legacy));
+  assert.throws(() => recordRead('pages.get', page(42, 'publish'), site, {}, file), /Legacy session has no site/);
+  const current = startSession('Inspect the configured site.', 'production', site, file);
+  const archive = path.join(path.dirname(file), 'sessions', `${legacy.sessionId}.json`);
+  assert.deepEqual(readSession(archive), legacy);
+  assert.equal(readSession(file).sessionId, current.sessionId);
+  assert.equal(readSession(file).environment.site, site);
+  recordRead('pages.get', page(42, 'publish'), site, {}, file);
+  assert.equal(readSession(file).actions.length, 1);
+});
+
 test('site identities reject credential-bearing URLs before they reach the journal', () => {
   const invalid = [
     'https://user:password@example.test/',

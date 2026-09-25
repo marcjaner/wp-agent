@@ -97,7 +97,7 @@ export function writeSession(session: Session, file = sessionFile()): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.tmp`;
   const safe = redact(session) as Session;
-  safe.environment.site = normalizeSiteUrl(session.environment.site);
+  if (session.environment.site) safe.environment.site = normalizeSiteUrl(session.environment.site);
   fs.writeFileSync(temporary, JSON.stringify(safe, null, 2) + '\n', { mode: 0o600 });
   fs.renameSync(temporary, file);
 }
