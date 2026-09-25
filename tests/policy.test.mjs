@@ -6,9 +6,10 @@ import path from 'node:path';
 import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { evaluateStatic, evaluatePolicy, executeMutation, readSession, redact, startSession, PolicyDecisionError } from '../dist/policy.js';
+import { evaluateStatic, evaluatePolicy, executeMutation, readSession, recordRead, redact, startSession, PolicyDecisionError } from '../dist/policy.js';
 import { WordPress } from '../dist/wordpress.js';
 import { BridgeClient } from '../dist/bridge.js';
+import { normalizeSiteUrl } from '../dist/site-url.js';
 
 const site = 'https://example.test/';
 const tempFile = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'wp-agent-policy-')), 'session.json');
@@ -97,6 +98,47 @@ test('journal records creation, snapshots, decisions, failures, and redacts secr
   assert.equal(redact({ password: 'x', nested: { authorization: 'y' } }).nested.authorization, '[REDACTED]');
   await assert.rejects(() => executeMutation(action('pages.update', page(42, 'draft')), async () => { throw new Error('Backend failed'); }, { file, site, provider: null, snapshot: () => '/tmp/recover.json' }), error => error.snapshot === '/tmp/recover.json');
   assert.equal(readSession(file).actions.at(-1).result.snapshot, '/tmp/recover.json');
+});
+
+test('short app passwords do not corrupt the saved site or approval retry', async () => {
+  const file = tempFile();
+  const site = 'https://lavendel.example/';
+  const previousPassword = process.env.WP_APP_PASSWORD;
+  process.env.WP_APP_PASSWORD = 'lave';
+  try {
+    startSession('Publish a page.', 'production', site, file);
+    assert.equal(readSession(file).environment.site, site);
+    recordRead('pages.get', page(42, 'publish'), site, { note: 'lave is a secret' }, file);
+    assert.equal(readSession(file).environment.site, site);
+    assert.equal(readSession(file).actions[0].input.note, '[REDACTED] is a secret');
+
+    const proposal = action('pages.update', page(42, 'publish'), { input: { changesHash: 'change-a', beforeHash: 'page-a' } });
+    let requestId;
+    await assert.rejects(() => executeMutation(proposal, async () => { throw new Error('must not run'); }, { site, file, provider: null }), error => {
+      requestId = error.action.id;
+      return error instanceof PolicyDecisionError;
+    });
+    assert.equal(readSession(file).environment.site, site);
+    assert.equal(await executeMutation(proposal, async () => 'updated', { site, file, provider: null, approval: { requestId, note: 'Approved in chat' } }), 'updated');
+    assert.equal(readSession(file).actions.at(-1).approval.requestId, requestId);
+  } finally {
+    if (previousPassword === undefined) delete process.env.WP_APP_PASSWORD;
+    else process.env.WP_APP_PASSWORD = previousPassword;
+  }
+});
+
+test('site identities reject credential-bearing URLs before they reach the journal', () => {
+  const invalid = [
+    'https://user:password@example.test/',
+    'https://example.test/?token=secret',
+    'https://example.test/#secret',
+    'file:///tmp/wordpress',
+  ];
+  for (const url of invalid) {
+    assert.throws(() => normalizeSiteUrl(url));
+    assert.throws(() => startSession('Inspect.', 'production', url, tempFile()));
+    assert.throws(() => new WordPress(url, { user: 'test', appPassword: 'test' }));
+  }
 });
 
 test('agent approval retries one exact denied action and records its source', async () => {
