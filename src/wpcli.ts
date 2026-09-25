@@ -10,12 +10,21 @@ const execFileAsync = promisify(execFile);
 
 function quote(value: string): string { return `'${value.replace(/'/g, `'\\''`)}'`; }
 
-// Nouns that may precede a read verb, as in `post meta get` or `theme mod list`.
-const readNouns = new Set(['cap', 'cli', 'comment', 'core', 'cron', 'event', 'item', 'language', 'location', 'media', 'menu', 'meta', 'mod', 'network', 'option', 'plugin', 'post', 'post-type', 'role', 'rewrite', 'schedule', 'sidebar', 'site', 'taxonomy', 'term', 'theme', 'transient', 'user', 'widget']);
-const readVerbs = new Set(['check-update', 'count', 'exists', 'get', 'is-active', 'is-installed', 'list', 'path', 'pluck', 'search', 'status', 'version']);
+// Only known WP-CLI command paths are reads. Plugins can add commands under core namespaces.
+const readCommands = new Set([
+  'core version', 'help',
+  'post get', 'post list', 'post meta get', 'post meta list',
+  'option get', 'option list',
+  'plugin is-active', 'plugin is-installed', 'plugin list', 'plugin status',
+  'theme is-active', 'theme is-installed', 'theme list', 'theme mod list', 'theme status',
+  'user get', 'user list', 'site get', 'site list',
+  'term get', 'term list', 'taxonomy list', 'post-type list',
+  'comment get', 'comment list', 'media get', 'media list',
+  'transient get', 'transient list', 'cron event list', 'rewrite list',
+]);
 // Global flags that run PHP make any command a mutation; flags that retarget WP-CLI are refused.
 const codeFlags = new Set(['exec', 'require']);
-const refusedFlags = new Set(['http', 'path', 'prompt', 'ssh']);
+const refusedFlags = new Set(['config', 'http', 'path', 'prompt', 'ssh', 'url']);
 const readEval = [
   'echo get_stylesheet();',
   '$p = wp_get_custom_css_post(); echo base64_encode($p ? $p->post_content : "");',
@@ -33,9 +42,10 @@ export function classifyWpCli(args: string[]): WpCliAccess {
   if (words[0] === 'shell' || words[0] === 'db' && words[1] === 'cli') return { readOnly: false, refused: 'Interactive WP-CLI commands are not supported.' };
   if (flags.some(flag => codeFlags.has(flag))) return { readOnly: false };
   if (args.length === 2 && args[0] === 'eval' && readEval.includes(args[1])) return { readOnly: true };
-  if (words[0] === 'help') return { readOnly: true };
-  const verb = words.findIndex(word => readVerbs.has(word));
-  return { readOnly: verb > 0 && words.slice(0, verb).every(word => readNouns.has(word)) };
+  return { readOnly: [...readCommands].some(command => {
+    const path = command.split(' ');
+    return path.every((part, index) => words[index] === part);
+  }) };
 }
 
 export function wpCliAction(tool: string, args: string[], input: Record<string, unknown> = { args }): ProposedAction {
@@ -50,7 +60,7 @@ export async function remoteWp(args: string[]): Promise<string> {
   }
   const { WP_SSH_HOST: host, WP_SSH_USER: user, WP_SSH_KEY_PATH: key, WP_SSH_PORT: port, WP_PATH: wpPath } = process.env;
   if (!host || !user || !key || !wpPath) throw new Error('WP-CLI needs WP_SSH_HOST, WP_SSH_USER, WP_SSH_KEY_PATH, and WP_PATH.');
-  const remote = ['wp', `--path=${wpPath}`, ...args].map(quote).join(' ');
+  const remote = ['wp', `--path=${wpPath}`, `--url=${siteUrl()}`, ...args].map(quote).join(' ');
   const sshArgs = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-i', key, '-p', port || '22', `${user}@${host}`, remote];
   try {
     const result = await execFileAsync('ssh', sshArgs, { timeout: 60000, maxBuffer: 1024 * 1024 });
